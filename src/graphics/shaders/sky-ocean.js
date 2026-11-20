@@ -1,7 +1,8 @@
 /**
  * Twilight coastal sky, sunset afterglow cloud deck, and animated multi-swell dusk ocean.
- * Tuned to match the cool periwinkle-slate left sky, luminous pearl center horizon,
- * warm coral-peach right afterglow, and rolling white-crested twilight waves.
+ * Calibrated in linear HDR radiance for AgX tonemapping to match the cool periwinkle-blue
+ * upper-left sky, bright pale pearl-azure upper-right, rosy peach sunset strip on the right,
+ * and deep textured indigo-blue rolling ocean swells with whitewater crests.
  */
 
 export const SKY_OCEAN_GLSL = /* glsl */ `
@@ -11,125 +12,139 @@ uniform float uStarVisibility;
 
 vec3 evaluateSky(vec3 rd, float time) {
   float elev = max(rd.y, 0.0);
-  // Azimuth across screen: negative left, positive right
-  float az = clamp(rd.x * 1.15, -1.0, 1.0);
-  float rightWarmth = smoothstep(-0.25, 0.95, az);
-  float farRight = smoothstep(0.28, 1.0, az);
+  // Azimuth across frame: negative left, positive right
+  float az = clamp(rd.x * 1.18, -1.0, 1.0);
+  float rightBright = smoothstep(-0.35, 0.85, az);
+  float farRight = smoothstep(0.18, 0.98, az);
 
-  // Base vertical twilight gradient: cool slate-periwinkle left -> brighter azure right
-  vec3 zenithLeft = vec3(0.11, 0.175, 0.36);
-  vec3 zenithRight = vec3(0.22, 0.32, 0.50);
-  vec3 zenithCol = mix(zenithLeft, zenithRight, rightWarmth);
+  // Deep saturated dusk cobalt-periwinkle upper-left -> brighter pale sky-blue upper-right
+  vec3 zenithLeft = vec3(0.085, 0.165, 0.42);
+  vec3 zenithRight = vec3(0.28, 0.41, 0.66);
+  vec3 zenithCol = mix(zenithLeft, zenithRight, rightBright);
 
-  // Mid-sky luminous cool blue-lavender band
-  vec3 midLeft = vec3(0.26, 0.33, 0.50);
-  vec3 midRight = vec3(0.56, 0.62, 0.72);
-  vec3 midCol = mix(midLeft, midRight, rightWarmth);
+  // Mid-sky luminous cool periwinkle-blue -> clean airy pale azure
+  vec3 midLeft = vec3(0.18, 0.27, 0.50);
+  vec3 midRight = vec3(0.54, 0.66, 0.82);
+  vec3 midCol = mix(midLeft, midRight, rightBright);
 
-  // Horizon haze: misty violet-slate on left -> pearlescent cream center -> warm peach-rose right
-  vec3 horizLeft = vec3(0.24, 0.27, 0.40);
-  vec3 horizCenter = vec3(0.68, 0.66, 0.72);
-  vec3 horizPeach = vec3(0.96, 0.58, 0.49);
-  vec3 horizCoral = vec3(1.06, 0.44, 0.42);
+  // Horizon band: moody blue-lavender left -> luminous pale cream-pearl center -> peach-coral right
+  vec3 horizLeft = vec3(0.19, 0.24, 0.42);
+  vec3 horizCenter = vec3(0.66, 0.69, 0.78);
+  vec3 horizPeach = vec3(1.08, 0.66, 0.52);
+  vec3 horizCoral = vec3(1.22, 0.42, 0.40);
 
-  vec3 horizCol = mix(horizLeft, horizCenter, smoothstep(-0.75, 0.22, az));
-  vec3 warmGlow = mix(horizPeach, horizCoral, smoothstep(0.52, 0.98, az));
-  horizCol = mix(horizCol, warmGlow, farRight * 0.85 * uSunsetStrength);
+  vec3 horizCol = mix(horizLeft, horizCenter, smoothstep(-0.78, 0.16, az));
+  vec3 warmGlow = mix(horizPeach, horizCoral, smoothstep(0.46, 0.96, az));
+  horizCol = mix(horizCol, warmGlow, farRight * 0.92 * uSunsetStrength);
 
-  // Vertical blending with smooth atmospheric scale height
-  vec3 sky = mix(horizCol, midCol, smoothstep(0.0, 0.22, elev));
-  sky = mix(sky, zenithCol, smoothstep(0.14, 0.62, elev));
+  // Vertical atmospheric transition
+  vec3 sky = mix(horizCol, midCol, smoothstep(0.0, 0.16, elev));
+  sky = mix(sky, zenithCol, smoothstep(0.10, 0.56, elev));
 
-  // Soft low-elevation solar afterglow bloom off to the right horizon
-  vec3 sunDir = normalize(vec3(0.86, 0.025, 0.51));
+  // Warm post-sunset horizon radiance glowing off to the far right
+  vec3 sunDir = normalize(vec3(0.84, 0.025, 0.54));
   float sunDot = max(dot(rd, sunDir), 0.0);
-  vec3 afterglow = vec3(1.0, 0.52, 0.38) * pow(sunDot, 5.0) * 0.28 * uSunsetStrength;
-  afterglow += vec3(1.0, 0.72, 0.56) * pow(sunDot, 16.0) * 0.18 * uSunsetStrength;
-  sky += afterglow * exp(-elev * 5.2);
+  vec3 afterglow = vec3(1.15, 0.56, 0.40) * pow(sunDot, 4.0) * 0.34 * uSunsetStrength;
+  afterglow += vec3(1.20, 0.76, 0.56) * pow(sunDot, 14.0) * 0.24 * uSunsetStrength;
+  sky += afterglow * exp(-elev * 5.8);
 
-  // Delicate stratified dusk clouds projected onto a curved marine cloud deck
+  // Stratified twilight clouds: dusty blue-lavender bank on left & rose-pink sunset wisps on right
   if (rd.y > 0.002) {
-    float cloudT = 1.0 / (rd.y + 0.115);
-    vec2 cloudUv = rd.xz * cloudT * 0.42 + vec2(time * 0.0032, -time * 0.0014);
+    float cloudT = 1.0 / (rd.y + 0.105);
+    vec2 cloudUv = rd.xz * cloudT * 0.38 + vec2(time * 0.0026, -time * 0.0012);
 
-    // Stretched horizontal marine stratus bands
-    vec2 stretched = vec2(cloudUv.x * 0.62, cloudUv.y * 1.85);
-    float c1 = fbm2D(stretched * 1.45 + vec2(2.3, 1.1));
-    float c2 = fbm2D(stretched * 3.1 - vec2(c1 * 0.75, time * 0.002));
-    float cloudMask = smoothstep(0.46, 0.78, c1 * 0.7 + c2 * 0.35);
+    vec2 stretched = vec2(cloudUv.x * 0.55, cloudUv.y * 2.1);
+    float c1 = fbm2D(stretched * 1.35 + vec2(3.1, 1.4));
+    float c2 = fbm2D(stretched * 2.85 - vec2(c1 * 0.85, time * 0.0018));
+    float cloudMask = smoothstep(0.43, 0.76, c1 * 0.68 + c2 * 0.38);
 
-    // Stronger soft bank on the left twilight horizon + delicate wispy pink clouds on right
-    float leftBank = smoothstep(0.28, -0.65, az) * smoothstep(0.26, 0.02, elev) * 0.75;
-    float rightWisps = smoothstep(0.32, 0.92, az) * smoothstep(0.18, 0.015, elev) * smoothstep(0.54, 0.80, c2);
-    float elevFade = smoothstep(0.002, 0.038, elev) * smoothstep(0.46, 0.07, elev);
+    // Distinct soft blue-lavender marine cloud bank on the left third + subtle mauve high wisps
+    float leftBank = smoothstep(0.22, -0.62, az) * smoothstep(0.24, 0.015, elev);
+    float highLeftWisp = smoothstep(0.15, -0.70, az) * smoothstep(0.08, 0.22, elev) * smoothstep(0.36, 0.18, elev);
+    float rightPinkWisps = smoothstep(0.38, 0.94, az) * smoothstep(0.16, 0.012, elev) * smoothstep(0.52, 0.80, c2);
+    float elevFade = smoothstep(0.002, 0.028, elev) * smoothstep(0.44, 0.05, elev);
 
-    vec3 leftCloudCol = mix(vec3(0.21, 0.24, 0.38), vec3(0.36, 0.34, 0.48), c2);
-    vec3 rightCloudCol = mix(vec3(0.86, 0.48, 0.46), vec3(1.06, 0.62, 0.50), c2);
-    vec3 cloudCol = mix(leftCloudCol, rightCloudCol, smoothstep(-0.1, 0.75, az) * uSunsetStrength);
+    vec3 leftCloudCol = mix(vec3(0.14, 0.18, 0.34), vec3(0.31, 0.31, 0.48), c2);
+    vec3 mauveWispCol = vec3(0.36, 0.33, 0.50);
+    vec3 rightCloudCol = mix(vec3(0.95, 0.48, 0.48), vec3(1.28, 0.54, 0.50), c2);
+    vec3 cloudCol = mix(leftCloudCol, rightCloudCol, smoothstep(0.05, 0.78, az) * uSunsetStrength);
 
-    float totalCloud = saturate(cloudMask * elevFade * (0.42 + leftBank * 0.65));
-    sky = mix(sky, cloudCol, totalCloud * 0.62);
-    sky = mix(sky, vec3(1.05, 0.50, 0.48) * uSunsetStrength + leftCloudCol * (1.0 - uSunsetStrength), rightWisps * 0.48);
+    float bankAlpha = saturate(cloudMask * elevFade * (0.28 + leftBank * 0.82));
+    sky = mix(sky, cloudCol, bankAlpha * 0.70);
+    sky = mix(sky, mauveWispCol, saturate(cloudMask * highLeftWisp * 0.42));
+    sky = mix(
+      sky,
+      mix(leftCloudCol, vec3(1.22, 0.46, 0.46), uSunsetStrength),
+      rightPinkWisps * 0.68
+    );
   }
 
-  // Subtle horizon marine mist band
-  float horizonMist = exp(-elev * 24.0);
-  vec3 mistCol = mix(vec3(0.32, 0.35, 0.48), vec3(0.74, 0.66, 0.68), smoothstep(-0.5, 0.8, az));
-  sky = mix(sky, mistCol, horizonMist * 0.28);
+  // Crisp subtle horizon airglow scatter
+  float horizonBand = exp(-elev * 32.0);
+  vec3 hBandCol = mix(vec3(0.24, 0.28, 0.46), vec3(0.88, 0.74, 0.72), smoothstep(-0.55, 0.85, az));
+  sky = mix(sky, hBandCol, horizonBand * 0.22);
 
-  // Subtle evening stars (barely visible in twilight, crisp in blue hour & night)
+  // Delicate evening stars (emerging in Blue Hour & Night presets)
   if (uStarVisibility > 0.01 && elev > 0.08) {
     vec2 starGrid = floor((rd.xz / (rd.y + 0.35)) * 185.0);
     float starHash = hash12(starGrid);
-    if (starHash > 0.9945) {
+    if (starHash > 0.9942) {
       vec2 cellUv = fract((rd.xz / (rd.y + 0.35)) * 185.0) - 0.5;
       float d = length(cellUv);
       float twinkle = 0.75 + 0.25 * sin(time * 2.2 + starHash * 400.0);
       float starBright = smoothstep(0.16, 0.0, d) * twinkle * smoothstep(0.08, 0.28, elev);
       vec3 starCol = mix(vec3(0.82, 0.90, 1.0), vec3(1.0, 0.92, 0.80), fract(starHash * 73.1));
-      sky += starCol * starBright * 0.9 * uStarVisibility;
+      sky += starCol * starBright * 1.1 * uStarVisibility;
     }
   }
 
   return sky * uSkyExposure;
 }
 
-// Multi-directional rolling coastal swells + fine capillary wind ripples
-float oceanWaveHeight(vec2 p, float time, out float crestFoam) {
+// Multi-directional rolling coastal swells + dramatic dark wave troughs & breaking foam crests
+float oceanWaveHeight(vec2 p, float time, out float crestFoam, out float troughMask) {
   float h = 0.0;
   float foam = 0.0;
 
-  // Primary shoreward rolling swells (moving toward negative Z = toward camera/beach)
-  float swell1Phase = p.y * 0.68 + time * 0.62 + sin(p.x * 0.19 + 0.5) * 0.9;
+  // Primary bold shoreward rolling swells (creates distinct dark wave fronts facing the camera)
+  float swell1Phase = p.y * 0.62 + time * 0.58 + sin(p.x * 0.16 + 0.4) * 1.05;
   float s1 = sin(swell1Phase);
-  float c1 = pow(saturate(s1 * 0.5 + 0.5), 2.4);
-  h += (s1 * 0.5 + c1 * 0.45) * 0.12;
+  float c1 = pow(saturate(s1 * 0.5 + 0.5), 2.2);
+  h += (s1 * 0.55 + c1 * 0.55) * 0.22;
 
-  float swell2Phase = p.y * 1.18 + p.x * 0.14 + time * 0.92 + noise2D(p * 0.12) * 1.6;
+  float swell2Phase = p.y * 1.15 - p.x * 0.11 + time * 0.86 + noise2D(p * 0.14) * 1.8;
   float s2 = sin(swell2Phase);
-  float c2 = pow(saturate(s2 * 0.5 + 0.5), 3.0);
-  h += (s2 * 0.4 + c2 * 0.5) * 0.068;
+  float c2 = pow(saturate(s2 * 0.5 + 0.5), 2.8);
+  h += (s2 * 0.42 + c2 * 0.52) * 0.12;
 
-  // Breaking wave crests at realistic surf distances (z ~ 8..26m)
-  float surfZone = smoothstep(42.0, 9.5, p.y) * smoothstep(5.4, 7.6, p.y);
-  float breakNoise = fbm2D(vec2(p.x * 0.42, p.y * 0.35 + time * 0.18));
-  foam += smoothstep(0.56, 0.92, c1 * 0.75 + c2 * 0.45 + (breakNoise - 0.5) * 0.38) * surfZone;
-
-  // Cross-sea chop & wind waves
+  // Shorter coastal wind chop giving rich rippled reflections across the ocean surface
   vec2 q = p;
-  q.x += sin(p.y * 0.45 + time * 0.35) * 0.6;
-  h += (noise2D(vec2(q.x * 0.85, q.y * 1.45 + time * 0.75)) - 0.5) * 0.065;
-  h += (noise2D(vec2(q.x * 2.1 - time * 0.3, q.y * 3.2 + time * 1.15)) - 0.5) * 0.028;
-  h += (noise2D(vec2(q.x * 5.2 + time * 0.5, q.y * 7.8 + time * 1.65)) - 0.5) * 0.011;
+  q.x += sin(p.y * 0.38 + time * 0.32) * 0.7;
+  float chop1 = noise2D(vec2(q.x * 0.72, q.y * 1.55 + time * 0.72)) - 0.5;
+  float chop2 = noise2D(vec2(q.x * 1.95 - time * 0.28, q.y * 3.4 + time * 1.15)) - 0.5;
+  float chop3 = noise2D(vec2(q.x * 4.8 + time * 0.44, q.y * 8.2 + time * 1.55)) - 0.5;
+  h += chop1 * 0.11 + chop2 * 0.048 + chop3 * 0.020;
 
-  // Frothy shoreline swash / breaking whitewater along beach edge (z ~ 5.6..7.4)
-  float shoreWave = sin(time * 0.72 + sin(p.x * 0.38) * 1.2) * 0.35;
-  float shoreDist = p.y - (5.85 + shoreWave);
-  float shoreFoam = exp(-pow(shoreDist / 0.78, 2.0)) * (0.65 + 0.55 * breakNoise);
-  float secondaryBreaker = exp(-pow((p.y - 11.5 - sin(p.x * 0.15 + 1.2) * 1.8) / 1.45, 2.0))
-    * smoothstep(0.32, 0.78, c1 * 0.7 + breakNoise * 0.55);
-  foam = saturate(foam + shoreFoam * 0.88 + secondaryBreaker * 0.62);
+  // Prominent breaking wave rollers (left-mid breaker, right-mid roller, shoreline wash)
+  float breakNoise = fbm2D(vec2(p.x * 0.38, p.y * 0.34 + time * 0.14));
+  float fineLace = fbm2D(vec2(p.x * 1.8, p.y * 2.2 + time * 0.22));
 
+  // Mid-surf breaking swells (z ~ 8..22m)
+  float surfZone = smoothstep(38.0, 10.0, p.y) * smoothstep(5.4, 7.4, p.y);
+  float breakerCrest = smoothstep(0.54, 0.88, c1 * 0.72 + c2 * 0.44 + (breakNoise - 0.5) * 0.42) * surfZone;
+
+  // Distinct foaming roller band on the right & left midground matching reference photo
+  float leftRoller = exp(-pow((p.y - 13.8 - sin(p.x * 0.22) * 1.5) / 1.4, 2.0))
+    * smoothstep(0.2, -3.5, p.x) * smoothstep(0.32, 0.72, c1 * 0.65 + fineLace * 0.55);
+  float rightRoller = exp(-pow((p.y - 10.6 - cos(p.x * 0.26) * 1.2) / 1.15, 2.0))
+    * smoothstep(1.2, 5.5, p.x) * smoothstep(0.30, 0.74, c2 * 0.65 + fineLace * 0.55);
+
+  // Frothy shoreline surf line running along the beach edge
+  float shoreCurve = 5.65 + sin(p.x * 0.34 + 0.6) * 0.32 + sin(time * 0.68 + p.x * 0.18) * 0.26;
+  float shoreFoam = exp(-pow((p.y - shoreCurve) / 0.62, 2.0)) * (0.60 + 0.65 * fineLace);
+
+  foam = saturate(breakerCrest * 0.78 + leftRoller * 0.85 + rightRoller * 0.90 + shoreFoam * 0.95);
+  troughMask = saturate(1.0 - (s1 * 0.5 + 0.5));
   crestFoam = foam;
   return h;
 }
@@ -145,62 +160,64 @@ vec3 shadeOcean(
   vec3 pos = ro + rd * tOcean;
   float dist = tOcean;
 
-  // Distance-scaled finite difference step to avoid horizon shimmer aliasing
-  float eps = clamp(dist * 0.0085, 0.045, 0.65);
+  float eps = clamp(dist * 0.0085, 0.045, 0.55);
   float foamC = 0.0, foamX = 0.0, foamZ = 0.0;
-  float hC = oceanWaveHeight(pos.xz, time, foamC);
-  float hX = oceanWaveHeight(pos.xz + vec2(eps, 0.0), time, foamX);
-  float hZ = oceanWaveHeight(pos.xz + vec2(0.0, eps), time, foamZ);
+  float troughC = 0.0, troughX = 0.0, troughZ = 0.0;
+  float hC = oceanWaveHeight(pos.xz, time, foamC, troughC);
+  float hX = oceanWaveHeight(pos.xz + vec2(eps, 0.0), time, foamX, troughX);
+  float hZ = oceanWaveHeight(pos.xz + vec2(0.0, eps), time, foamZ, troughZ);
 
-  // Dampen high-frequency normal slope toward distant horizon
-  float normalScale = mix(1.0, 0.24, smoothstep(8.0, 110.0, dist));
+  // Strong crisp wave normals in surf zone, gently softening toward distant horizon
+  float normalScale = mix(1.35, 0.32, smoothstep(8.0, 95.0, dist));
   vec3 n = normalize(vec3((hC - hX) / eps * normalScale, 1.0, (hC - hZ) / eps * normalScale));
 
   vec3 v = -rd;
   float ndv = max(dot(n, v), 0.001);
 
-  // Schlick Fresnel for seawater (F0 = 0.02)
-  float fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-  fresnel = clamp(fresnel * 1.12, 0.03, 0.96);
+  // Physically calibrated Fresnel: wave faces tilted toward camera stay rich deep indigo,
+  // while wave backs & calm distant bands reflect the bright luminous sky!
+  float fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 4.4);
+  fresnel = clamp(fresnel * 0.96, 0.02, 0.92);
 
   vec3 reflDir = reflect(rd, n);
-  reflDir.y = abs(reflDir.y) * 0.88 + 0.015;
+  reflDir.y = abs(reflDir.y) * 0.82 + 0.012;
   vec3 skyRefl = evaluateSky(normalize(reflDir), time);
 
-  // Deep dusk seawater body color (darker cool indigo on steeper camera-facing troughs)
-  float rightTint = smoothstep(-0.2, 0.85, rd.x);
-  vec3 deepWater = mix(vec3(0.012, 0.024, 0.056), vec3(0.022, 0.042, 0.072), rightTint) * uSkyExposure;
-  vec3 shallowScatter = vec3(0.03, 0.068, 0.115) * uSkyExposure * smoothstep(22.0, 6.0, pos.z);
-  vec3 waterBody = deepWater + shallowScatter * (0.4 + 0.6 * max(n.z, 0.0));
+  // Deep saturated dusk navy-indigo ocean troughs (iconic rich contrast in the reference photo!)
+  float rightTint = smoothstep(-0.25, 0.85, rd.x);
+  vec3 deepWater = mix(vec3(0.009, 0.024, 0.068), vec3(0.018, 0.042, 0.088), rightTint) * uSkyExposure;
+  // Steeper front faces of rolling swells read even darker marine indigo
+  float frontFaceDarken = saturate(max(-n.z, 0.0) * 1.45);
+  vec3 waterBody = mix(deepWater, deepWater * 0.42, frontFaceDarken * 0.72 + troughC * 0.25);
 
-  vec3 col = mix(waterBody, skyRefl * 0.92, fresnel);
+  vec3 col = mix(waterBody, skyRefl * 0.86, fresnel * (1.0 - frontFaceDarken * 0.48));
 
-  // Subtle silvery-peach grazing sheen across calm right-side ocean swells
-  vec3 sunDir = normalize(vec3(0.84, 0.06, 0.54));
+  // Silvery-warm reflection sheen across the right-hand ocean water
+  vec3 sunDir = normalize(vec3(0.82, 0.07, 0.56));
   vec3 hSun = normalize(sunDir + v);
-  float sunSpec = pow(max(dot(n, hSun), 0.0), 48.0) * 0.24 * uSunsetStrength * uSkyExposure;
-  col += vec3(1.0, 0.78, 0.66) * sunSpec * smoothstep(7.0, 35.0, dist);
+  float sunSpec = pow(max(dot(n, hSun), 0.0), 42.0) * 0.34 * uSunsetStrength * uSkyExposure;
+  col += vec3(1.0, 0.82, 0.70) * sunSpec * smoothstep(7.0, 32.0, dist);
 
-  // Subtle warm flickering campfire reflection glinting on near shoreline waves
+  // Subtle flickering amber reflection of campfire on closest surf water
   vec3 toFire = firePos - pos;
   float fireDist = length(toFire);
   vec3 lFire = toFire / max(fireDist, 0.001);
   vec3 hFire = normalize(lFire + v);
-  float fireSpec = pow(max(dot(n, hFire), 0.0), 36.0);
-  float fireAtten = 1.0 / (1.0 + fireDist * fireDist * 0.09);
-  col += fireColor * fireSpec * fireAtten * 0.35;
+  float fireSpec = pow(max(dot(n, hFire), 0.0), 32.0);
+  float fireAtten = 1.0 / (1.0 + fireDist * fireDist * 0.08);
+  col += fireColor * fireSpec * fireAtten * 0.25;
 
-  // Textured twilight whitewater / foam crests (cool dusky white, never over-bright)
-  float fineFoam = fbm2D(pos.xz * 2.8 + vec2(0.0, time * 0.25));
-  float foamMask = saturate(foamC * (0.55 + 0.75 * fineFoam)) * smoothstep(85.0, 12.0, dist);
-  vec3 foamColor = mix(vec3(0.24, 0.31, 0.44), vec3(0.56, 0.60, 0.69), rightTint * 0.75 + 0.25) * uSkyExposure;
-  foamColor += fireColor * fireAtten * 0.06;
-  col = mix(col, foamColor, foamMask * 0.76);
+  // Textured lacy whitewater foam crests & frothy surf edge
+  float fineFoam = fbm2D(pos.xz * 2.9 + vec2(0.0, time * 0.24));
+  float foamMask = saturate(foamC * (0.58 + 0.78 * fineFoam)) * smoothstep(95.0, 12.0, dist);
+  vec3 foamColor = mix(vec3(0.24, 0.34, 0.52), vec3(0.58, 0.64, 0.74), rightTint * 0.7 + 0.3) * uSkyExposure;
+  foamColor += fireColor * fireAtten * 0.04;
+  col = mix(col, foamColor, foamMask * 0.82);
 
-  // Atmospheric sea haze blending ocean cleanly into horizon sky
-  float fog = 1.0 - exp(-pow(max(dist - 14.0, 0.0) * 0.0095, 1.35));
-  vec3 horizSky = evaluateSky(normalize(vec3(rd.x, 0.008, rd.z)), time);
-  col = mix(col, horizSky, saturate(fog));
+  // Crisp subtle horizon mist without washing out midground wave texture
+  float fog = 1.0 - exp(-pow(max(dist - 22.0, 0.0) * 0.0085, 1.45));
+  vec3 horizSky = evaluateSky(normalize(vec3(rd.x, 0.006, rd.z)), time);
+  col = mix(col, horizSky, saturate(fog * 0.92));
 
   return col;
 }
