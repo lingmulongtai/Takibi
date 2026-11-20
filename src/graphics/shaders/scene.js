@@ -147,9 +147,9 @@ void main() {
   vec3 fireBranchPos = vec3(0.38, 0.18, -0.10) + fireJiggle * 0.55;
 
   // Rich, saturated tangerine-orange firelight raking dramatically across the beach sand!
-  vec3 fireMainCol = vec3(1.0, 0.31, 0.042) * (7.2 * flk * uFireGain);
-  vec3 fireGapCol = vec3(1.0, 0.25, 0.032) * (3.1 * flk * uFireGain);
-  vec3 fireBranchCol = vec3(1.0, 0.33, 0.048) * (1.85 * flk * uFireGain);
+  vec3 fireMainCol = vec3(1.0, 0.30, 0.038) * (8.2 * flk * uFireGain);
+  vec3 fireGapCol = vec3(1.0, 0.24, 0.028) * (3.2 * flk * uFireGain);
+  vec3 fireBranchCol = vec3(1.0, 0.32, 0.045) * (2.0 * flk * uFireGain);
 
   // Deep cool twilight sky hemisphere ambient (blue-indigo shadows contrasting against warm fire!)
   vec3 skyAmbLeft = vec3(0.095, 0.155, 0.34) * uSkyExposure * uAmbientBoost;
@@ -231,9 +231,10 @@ void main() {
       float sparkle = 0.0;
       vec3 n = computeSandNormal(p.xz, tHit, sandAO, sparkle);
 
-      // Animated shoreline wave swash wetting the distant beach edge
-      float shoreCurve = 5.15 + sin(p.x * 0.34 + 0.6) * 0.32 + sin(uTime * 0.68 + p.x * 0.18) * 0.24;
-      float wetness = smoothstep(shoreCurve - 0.85, shoreCurve + 0.35, p.z);
+      // Animated scalloped shoreline wave swash wetting the distant beach edge seamlessly
+      float shoreCurve = 5.18 + sin(p.x * 0.36 + 0.6) * 0.30 + (noise2D(vec2(p.x * 0.55, 1.3)) - 0.5) * 0.34
+        + sin(uTime * 0.68 + p.x * 0.24) * 0.22;
+      float wetness = smoothstep(shoreCurve - 1.15, shoreCurve + 0.15, p.z);
 
       vec3 albedo;
       float specMask;
@@ -305,17 +306,27 @@ void main() {
 
       color = ambTerm + fireAccum;
 
-      // Wet shoreline sand reflects twilight sky and blends smoothly into foaming swash
+      // Wet shoreline sand reflects twilight sky and blends seamlessly into scalloped frothy surf!
       if (wetness > 0.01) {
         vec3 refl = reflect(rd, mix(n, vec3(0.0, 1.0, 0.0), 0.72));
         refl.y = max(refl.y, 0.01);
         float wetFres = (0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 4.5)) * wetness;
-        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.62, wetFres * 0.58);
+        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.64, wetFres * 0.54);
 
-        // Lacy whitewater foam lip kissing the dark wet shoreline sand
-        float lipFoam = exp(-pow((p.z - (shoreCurve + 0.25)) / 0.38, 2.0)) * fbm2D(p.xz * 3.4 + vec2(0.0, uTime * 0.3));
-        vec3 foamTint = mix(vec3(0.24, 0.33, 0.50), vec3(0.56, 0.62, 0.72), smoothstep(-2.0, 3.0, p.x)) * uSkyExposure;
-        color = mix(color, foamTint, saturate(lipFoam * 0.95));
+        // Soft organic scalloped whitewater swash bridging the dark wet sand into the ocean surf
+        float swashLace = fbm2D(vec2(p.x * 1.9, p.z * 2.4 + uTime * 0.28));
+        float shoreEdge = smoothstep(shoreCurve - 0.35, shoreCurve + 0.42, p.z);
+        float lipFoam = (exp(-pow((p.z - (shoreCurve + 0.05)) / 0.48, 2.0)) + shoreEdge * 0.65)
+          * smoothstep(0.28, 0.78, swashLace);
+        vec3 foamTint = mix(vec3(0.24, 0.34, 0.52), vec3(0.58, 0.64, 0.74), smoothstep(-2.2, 3.0, p.x)) * uSkyExposure;
+        color = mix(color, foamTint, saturate(lipFoam * 0.92));
+
+        // Feather exact shoreline transition smoothly into ocean radiance (zero ruler-straight cutoff!)
+        if (tOcean < 1e4 && p.z > shoreCurve - 0.1) {
+          float oceanBlend = smoothstep(shoreCurve - 0.05, shoreCurve + 0.55, p.z);
+          vec3 oceanEdgeCol = shadeOcean(ro, bgRd, tOcean, uTime, fireMainPos, fireMainCol);
+          color = mix(color, oceanEdgeCol, oceanBlend);
+        }
       }
 
       // Gentle twilight coastal air perspective on distant sand
