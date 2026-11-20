@@ -182,17 +182,17 @@ export class TakibiPipeline {
     const pos = [
       cameraOffset.x * 0.14,
       0.72 + breathe + cameraOffset.y * 0.055,
-      -2.28,
+      -2.06,
     ];
     const target = [
       cameraOffset.x * 0.035,
-      0.365 + cameraOffset.y * 0.025,
+      0.345 + cameraOffset.y * 0.025,
       0.35,
     ];
     const fwd = normalize3([target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]]);
     const right = normalize3(cross3([0, 1, 0], fwd));
     const up = cross3(fwd, right);
-    return { pos, right, up, fwd, focal: 1.62 };
+    return { pos, right, up, fwd, focal: 1.56 };
   }
 
   _drawFullscreen() {

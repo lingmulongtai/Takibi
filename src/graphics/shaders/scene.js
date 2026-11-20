@@ -106,17 +106,17 @@ void getCameraBasis(out vec3 ro, out vec3 right, out vec3 up, out vec3 fwd, out 
   ro = vec3(
     uCameraOffset.x * 0.14,
     0.72 + breathe + uCameraOffset.y * 0.055,
-    -2.28
+    -2.06
   );
   vec3 target = vec3(
     uCameraOffset.x * 0.035,
-    0.365 + uCameraOffset.y * 0.025,
+    0.345 + uCameraOffset.y * 0.025,
     0.35
   );
   fwd = normalize(target - ro);
   right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd));
   up = cross(fwd, right);
-  focal = 1.62;
+  focal = 1.56;
 }
 
 void main() {
@@ -142,17 +142,18 @@ void main() {
   );
 
   // 3 virtual campfire light sources matching the volumetric flame distribution
-  vec3 fireMainPos = vec3(0.01, 0.38, -0.02) + fireJiggle;
-  vec3 fireGapPos = vec3(-0.02, 0.13, -0.11) + fireJiggle * 0.35;
-  vec3 fireBranchPos = vec3(0.36, 0.18, -0.10) + fireJiggle * 0.55;
+  vec3 fireMainPos = vec3(0.01, 0.36, -0.02) + fireJiggle;
+  vec3 fireGapPos = vec3(-0.02, 0.14, -0.10) + fireJiggle * 0.35;
+  vec3 fireBranchPos = vec3(0.38, 0.18, -0.10) + fireJiggle * 0.55;
 
-  vec3 fireMainCol = vec3(1.0, 0.39, 0.085) * (4.4 * flk * uFireGain);
-  vec3 fireGapCol = vec3(1.0, 0.29, 0.045) * (2.15 * flk * uFireGain);
-  vec3 fireBranchCol = vec3(1.0, 0.36, 0.07) * (1.15 * flk * uFireGain);
+  // Rich, saturated tangerine-orange firelight raking dramatically across the beach sand!
+  vec3 fireMainCol = vec3(1.0, 0.31, 0.042) * (7.2 * flk * uFireGain);
+  vec3 fireGapCol = vec3(1.0, 0.25, 0.032) * (3.1 * flk * uFireGain);
+  vec3 fireBranchCol = vec3(1.0, 0.33, 0.048) * (1.85 * flk * uFireGain);
 
-  // Twilight hemisphere ambient colors derived directly from our sky palette
-  vec3 skyAmbLeft = vec3(0.14, 0.20, 0.36) * uSkyExposure * uAmbientBoost;
-  vec3 skyAmbRight = mix(vec3(0.24, 0.29, 0.42), vec3(0.42, 0.31, 0.34), uSunsetStrength * 0.55) * uSkyExposure * uAmbientBoost;
+  // Deep cool twilight sky hemisphere ambient (blue-indigo shadows contrasting against warm fire!)
+  vec3 skyAmbLeft = vec3(0.095, 0.155, 0.34) * uSkyExposure * uAmbientBoost;
+  vec3 skyAmbRight = mix(vec3(0.18, 0.24, 0.40), vec3(0.34, 0.27, 0.34), uSunsetStrength * 0.45) * uSkyExposure * uAmbientBoost;
   vec3 skyAmbAvg = 0.5 * (skyAmbLeft + skyAmbRight);
 
   // Subtle refractive heat haze for rays passing right above the hot rising flame column
@@ -231,8 +232,8 @@ void main() {
       vec3 n = computeSandNormal(p.xz, tHit, sandAO, sparkle);
 
       // Animated shoreline wave swash wetting the distant beach edge
-      float swashWave = sin(uTime * 0.72 + sin(p.x * 0.38) * 1.2) * 0.32;
-      float wetness = smoothstep(4.25 + swashWave, 5.75 + swashWave, p.z);
+      float shoreCurve = 5.15 + sin(p.x * 0.34 + 0.6) * 0.32 + sin(uTime * 0.68 + p.x * 0.18) * 0.24;
+      float wetness = smoothstep(shoreCurve - 0.85, shoreCurve + 0.35, p.z);
 
       vec3 albedo;
       float specMask;
@@ -240,21 +241,21 @@ void main() {
 
       // Local contact AO from wood planks resting on the sand
       float woodAO = computeAmbientOcclusion(p, n);
-      float combinedAO = saturate(sandAO * (0.45 + 0.55 * woodAO));
+      float combinedAO = saturate(sandAO * (0.42 + 0.58 * woodAO));
 
       // --- 1. Cool Twilight Sky Hemisphere Lighting (asymmetric left-blue / right-pale-peach) ---
       float skyHem = saturate(n.y * 0.5 + 0.5);
       float rightNormalBias = saturate(n.x * 0.5 + 0.5);
       vec3 skyLight = mix(skyAmbLeft, skyAmbRight, rightNormalBias * 0.65 + smoothstep(-2.0, 2.5, p.x) * 0.35);
 
-      // Deep cool dusk indigo shadow fill inside footprint bowls
-      vec3 deepTwilightFill = vec3(0.042, 0.062, 0.135) * uSkyExposure * uAmbientBoost;
-      vec3 ambTerm = albedo * mix(deepTwilightFill, skyLight * 1.15, skyHem * combinedAO);
+      // Deep cool dusk indigo shadow fill inside footprint bowls (matching rich blue shadows in photo!)
+      vec3 deepTwilightFill = vec3(0.022, 0.042, 0.115) * uSkyExposure * uAmbientBoost;
+      vec3 ambTerm = albedo * mix(deepTwilightFill, skyLight * 1.12, skyHem * combinedAO);
 
       // Subtle directional sky key from upper-right horizon illuminating right-facing footprint walls
       vec3 skyKeyDir = normalize(vec3(0.55, 0.42, 0.72));
       float skyKeyDiff = orenNayarDiffuse(n, skyKeyDir, v, 0.92);
-      ambTerm += albedo * skyAmbRight * skyKeyDiff * 0.52 * combinedAO;
+      ambTerm += albedo * skyAmbRight * skyKeyDiff * 0.45 * combinedAO;
 
       // --- 2. Grazing Multi-Emitter Warm Campfire Illumination + Real 3D Soft Shadows ---
       vec3 fireAccum = vec3(0.0);
@@ -264,34 +265,33 @@ void main() {
       float dMain = length(toMain);
       vec3 lMain = toMain / max(dMain, 0.001);
       float diffMain = orenNayarDiffuse(n, lMain, v, 0.94);
-      float attenMain = 1.0 / (0.28 + dMain * dMain * 1.38 + dMain * dMain * dMain * 0.22);
+      float attenMain = 1.0 / (0.24 + dMain * dMain * 1.15 + dMain * dMain * dMain * 0.18);
 
-      // Only pay full shadow march inside the fire's visible light throw radius (< 5.2m)
+      // Full shadow march across the visible firelight throw radius (< 5.5m)
       float shMain = 1.0;
-      if (dMain < 5.2 && diffMain > 0.002) {
-        shMain = computeFireShadow(p + n * 0.009, fireMainPos, 7.5, bn.g);
+      if (dMain < 5.5 && diffMain > 0.002) {
+        shMain = computeFireShadow(p + n * 0.009, fireMainPos, 8.2, bn.g);
       }
       fireAccum += albedo * fireMainCol * diffMain * attenMain * shMain;
 
-      // Subtle warm subsurface/multiple-bounce scatter inside dry sand around the fire
-      // (softens harsh terminator without washing out deep blue footprint hollows!)
-      float wrapMain = saturate((dot(n, lMain) + 0.28) / 1.28);
-      fireAccum += albedo * vec3(1.0, 0.26, 0.04) * wrapMain * attenMain * (0.12 + 0.22 * shMain) * flk * uFireGain;
+      // Subtle warm multiple-bounce scatter inside dry sand around the fire
+      float wrapMain = saturate((dot(n, lMain) + 0.22) / 1.22);
+      fireAccum += albedo * vec3(1.0, 0.22, 0.025) * wrapMain * attenMain * (0.09 + 0.26 * shMain) * flk * uFireGain;
 
       // Quartz sand-grain micro-sparkle catching grazing firelight in the foreground!
       vec3 hMain = normalize(lMain + v);
       float grainSpec = pow(max(dot(n, hMain), 0.0), 22.0) * sparkle * shMain * attenMain;
-      fireAccum += fireMainCol * grainSpec * 0.42;
+      fireAccum += fireMainCol * grainSpec * 0.36;
 
       // Emitter B: Low ember/plank-gap light spilling intensely between the front planks
       vec3 toGap = fireGapPos - p;
       float dGap = length(toGap);
       vec3 lGap = toGap / max(dGap, 0.001);
       float diffGap = orenNayarDiffuse(n, lGap, v, 0.95);
-      float attenGap = 1.0 / (0.16 + dGap * dGap * 2.65);
+      float attenGap = 1.0 / (0.14 + dGap * dGap * 2.2);
       float shGap = 1.0;
-      if (dGap < 2.8 && diffGap > 0.002) {
-        shGap = computeFireShadow(p + n * 0.009, fireGapPos, 6.0, bn.b);
+      if (dGap < 3.0 && diffGap > 0.002) {
+        shGap = computeFireShadow(p + n * 0.009, fireGapPos, 6.2, bn.b);
       }
       fireAccum += albedo * fireGapCol * diffGap * attenGap * shGap;
 
@@ -300,8 +300,8 @@ void main() {
       float dBr = length(toBr);
       vec3 lBr = toBr / max(dBr, 0.001);
       float diffBr = orenNayarDiffuse(n, lBr, v, 0.94);
-      float attenBr = 1.0 / (0.18 + dBr * dBr * 3.1);
-      fireAccum += albedo * fireBranchCol * diffBr * attenBr * (0.45 + 0.55 * shMain);
+      float attenBr = 1.0 / (0.16 + dBr * dBr * 2.6);
+      fireAccum += albedo * fireBranchCol * diffBr * attenBr * (0.42 + 0.58 * shMain);
 
       color = ambTerm + fireAccum;
 
@@ -310,17 +310,17 @@ void main() {
         vec3 refl = reflect(rd, mix(n, vec3(0.0, 1.0, 0.0), 0.72));
         refl.y = max(refl.y, 0.01);
         float wetFres = (0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 4.5)) * wetness;
-        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.72, wetFres * 0.65);
+        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.62, wetFres * 0.58);
 
-        // Lacy whitewater foam lip kissing the wet sand
-        float lipFoam = exp(-pow((p.z - (5.65 + swashWave)) / 0.42, 2.0)) * fbm2D(p.xz * 3.4 + vec2(0.0, uTime * 0.3));
-        vec3 foamTint = mix(vec3(0.28, 0.34, 0.48), vec3(0.54, 0.58, 0.68), smoothstep(-2.0, 3.0, p.x)) * uSkyExposure;
+        // Lacy whitewater foam lip kissing the dark wet shoreline sand
+        float lipFoam = exp(-pow((p.z - (shoreCurve + 0.25)) / 0.38, 2.0)) * fbm2D(p.xz * 3.4 + vec2(0.0, uTime * 0.3));
+        vec3 foamTint = mix(vec3(0.24, 0.33, 0.50), vec3(0.56, 0.62, 0.72), smoothstep(-2.0, 3.0, p.x)) * uSkyExposure;
         color = mix(color, foamTint, saturate(lipFoam * 0.95));
       }
 
       // Gentle twilight coastal air perspective on distant sand
-      float distFog = 1.0 - exp(-max(tHit - 3.0, 0.0) * 0.032);
-      color = mix(color, skyAmbAvg * 0.85, saturate(distFog * 0.32));
+      float distFog = 1.0 - exp(-max(tHit - 3.6, 0.0) * 0.022);
+      color = mix(color, skyAmbAvg * 0.72, saturate(distFog * 0.24));
     } else {
       // Driftwood planks, gnarled branches, or glowing charcoal bed
       vec3 n = calcWoodNormal(p);
