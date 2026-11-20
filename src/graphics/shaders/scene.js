@@ -156,14 +156,14 @@ void main() {
   vec3 skyAmbRight = mix(vec3(0.18, 0.24, 0.40), vec3(0.34, 0.27, 0.34), uSunsetStrength * 0.45) * uSkyExposure * uAmbientBoost;
   vec3 skyAmbAvg = 0.5 * (skyAmbLeft + skyAmbRight);
 
-  // Subtle refractive heat haze for rays passing right above the hot rising flame column
+  // Subtle smooth horizontal convective heat shimmer above the flame (avoids grazing horizon ocean stipple)
   vec3 bgRd = rd;
-  float plumeDist = length(vec2(ndc.x - 0.02, (ndc.y - 0.14) * 0.65));
-  float hazeZone = exp(-plumeDist * plumeDist * 22.0) * smoothstep(-0.06, 0.08, ndc.y);
+  float plumeDist = length(vec2(ndc.x - 0.01, (ndc.y - 0.16) * 0.62));
+  float hazeZone = exp(-plumeDist * plumeDist * 26.0) * smoothstep(-0.04, 0.10, ndc.y);
   if (hazeZone > 0.005) {
-    float hz1 = noise2D(vec2(ndc.x * 26.0, ndc.y * 18.0 - uTime * 4.4)) - 0.5;
-    float hz2 = noise2D(vec2(ndc.x * 48.0 + 7.1, ndc.y * 34.0 - uTime * 6.8)) - 0.5;
-    bgRd = normalize(rd + vec3(hz1 * 0.0045 + hz2 * 0.0022, hz2 * 0.0032, 0.0) * hazeZone * (1.0 + uStoke * 0.4));
+    float hz1 = noise2D(vec2(ndc.x * 11.0, ndc.y * 8.5 - uTime * 3.8)) - 0.5;
+    float hz2 = noise2D(vec2(ndc.x * 21.0 + 7.1, ndc.y * 15.0 - uTime * 5.6)) - 0.5;
+    bgRd = normalize(rd + vec3((hz1 * 0.0038 + hz2 * 0.0016), hz1 * 0.00055, 0.0) * hazeZone * (1.0 + uStoke * 0.35));
   }
 
   // Analytical ocean plane intersection (y = SEA_LEVEL)
