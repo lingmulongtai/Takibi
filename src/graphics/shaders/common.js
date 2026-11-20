@@ -60,11 +60,6 @@ float hash13(vec3 p3) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-float interleavedGradientNoise(vec2 fragCoord) {
-  vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-  return fract(magic.z * fract(dot(fragCoord, magic.xy)));
-}
-
 // Hardware-accelerated smooth 3D value noise using dual-channel offset LUT (uNoiseTex)
 float noise3D(vec3 x) {
   vec3 i = floor(x);
@@ -73,6 +68,36 @@ float noise3D(vec3 x) {
   vec2 uv = (i.xy + vec2(37.0, 17.0) * i.z) + f.xy;
   vec2 rg = textureLod(uNoiseTex, (uv + 0.5) / 256.0, 0.0).yx;
   return mix(rg.x, rg.y, f.z);
+}
+
+// 3-component smooth 3D vector noise for true divergence-free curl computation
+vec3 noise3DVec(vec3 x) {
+  return vec3(
+    noise3D(x),
+    noise3D(x + vec3(31.7, 17.3, 43.1)),
+    noise3D(x + vec3(67.2, 53.9, 11.4))
+  );
+}
+
+// Analytical finite-difference 3D curl (nabla x psi) normalized to ~[-1, 1] for authentic fluid eddies!
+vec3 curlNoise3D(vec3 p) {
+  const float e = 0.08;
+  vec3 dx = vec3(e, 0.0, 0.0);
+  vec3 dy = vec3(0.0, e, 0.0);
+  vec3 dz = vec3(0.0, 0.0, e);
+
+  vec3 px1 = noise3DVec(p + dx);
+  vec3 px0 = noise3DVec(p - dx);
+  vec3 py1 = noise3DVec(p + dy);
+  vec3 py0 = noise3DVec(p - dy);
+  vec3 pz1 = noise3DVec(p + dz);
+  vec3 pz0 = noise3DVec(p - dz);
+
+  float x = (py1.z - py0.z) - (pz1.y - pz0.y);
+  float y = (pz1.x - pz0.x) - (px1.z - px0.z);
+  float z = (px1.y - px0.y) - (py1.x - py0.x);
+
+  return (vec3(x, y, z) / (2.0 * e)) * 0.28;
 }
 
 float noise2D(vec2 x) {
@@ -92,6 +117,30 @@ float fbm2D(vec2 p) {
     amp *= 0.5;
   }
   return value;
+}
+
+// Cellular lacy sea-foam web noise (Voronoi ridge-web + FBM breakup)
+float foamWebNoise(vec2 p) {
+  vec2 n = floor(p);
+  vec2 f = fract(p);
+  float md = 8.0;
+  float md2 = 8.0;
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = hash22(n + g);
+      vec2 r = g + o - f;
+      float d = dot(r, r);
+      if (d < md) {
+        md2 = md;
+        md = d;
+      } else if (d < md2) {
+        md2 = d;
+      }
+    }
+  }
+  float edge = sqrt(md2) - sqrt(md);
+  return smoothstep(0.24, 0.02, edge);
 }
 
 float fbm3D(vec3 p) {
@@ -125,25 +174,13 @@ float sdRoundBox(vec3 p, vec3 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
 }
 
-// Capsule with linearly tapered radius from a (ra) to b (rb)
-float sdTaperedBranch(vec3 p, vec3 a, vec3 b, float ra, float rb, out float tAlong) {
-  vec3 pa = p - a;
-  vec3 ba = b - a;
-  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  tAlong = h;
-  return length(pa - ba * h) - mix(ra, rb, h);
-}
-
-// Physically-motivated Planckian blackbody emission approximation for fire & embers
-// Input tempK in Kelvin (roughly 700K .. 3600K)
+// Physically-motivated Planckian blackbody emission for fire & embers (700K .. 3800K)
 vec3 blackbodyColor(float tempK) {
   float t = clamp(tempK, 650.0, 4200.0) * 0.001;
-  // Smooth calibrated chromaticity curve tailored for AgX HDR fire rendering
   float r = 1.0;
   float g = saturate(0.39 * log(max(t, 0.1)) - 0.12 + 0.34 * pow(saturate((t - 0.8) / 2.2), 1.35));
   float b = saturate(pow(saturate((t - 1.65) / 1.95), 2.15));
 
-  // Fine calibration: rich crimson-orange below 1300K, vivid gold around 1800-2300K, warm cream-white >2800K
   vec3 col = vec3(r, g, b);
   col = mix(vec3(1.0, 0.09, 0.005), col, smoothstep(0.68, 1.45, t));
   col = mix(col, vec3(1.0, 0.96, 0.88), smoothstep(2.6, 3.8, t));
