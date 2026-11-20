@@ -25,27 +25,27 @@ vec3 evaluateSky(vec3 rd, float time) {
   vec3 midRight = vec3(0.54, 0.66, 0.82);
   vec3 midCol = mix(midLeft, midRight, rightBright);
 
-  // Horizon: dusky slate-lavender left -> luminous pale cream-blue center -> apricot-coral right
-  vec3 horizLeft = vec3(0.175, 0.225, 0.41);
-  vec3 horizCenter = vec3(0.68, 0.70, 0.78);
-  vec3 horizPeach = vec3(1.12, 0.64, 0.50);
-  vec3 horizCoral = vec3(1.28, 0.40, 0.42);
+  // Horizon: dusky slate-lavender left -> luminous pale cream-blue center -> warm apricot-coral right
+  vec3 horizLeft = vec3(0.165, 0.215, 0.405);
+  vec3 horizCenter = vec3(0.66, 0.69, 0.78);
+  vec3 horizPeach = vec3(1.16, 0.62, 0.48);
+  vec3 horizCoral = vec3(1.38, 0.38, 0.42);
 
-  vec3 horizCol = mix(horizLeft, horizCenter, smoothstep(-0.78, 0.18, az));
-  vec3 warmGlow = mix(horizPeach, horizCoral, smoothstep(0.44, 0.96, az));
-  horizCol = mix(horizCol, warmGlow, farRight * 0.94 * uSunsetStrength);
+  vec3 horizCol = mix(horizLeft, horizCenter, smoothstep(-0.78, 0.16, az));
+  vec3 warmGlow = mix(horizPeach, horizCoral, smoothstep(0.42, 0.95, az));
+  horizCol = mix(horizCol, warmGlow, farRight * 0.96 * uSunsetStrength);
 
   vec3 sky = mix(horizCol, midCol, smoothstep(0.0, 0.15, elev));
   sky = mix(sky, zenithCol, smoothstep(0.09, 0.54, elev));
 
   // Soft warm post-sunset horizon glow off to the right
-  vec3 sunDir = normalize(vec3(0.84, 0.024, 0.54));
+  vec3 sunDir = normalize(vec3(0.84, 0.026, 0.54));
   float sunDot = max(dot(rd, sunDir), 0.0);
-  vec3 afterglow = vec3(1.15, 0.54, 0.39) * pow(sunDot, 4.0) * 0.34 * uSunsetStrength;
-  afterglow += vec3(1.22, 0.74, 0.54) * pow(sunDot, 14.0) * 0.26 * uSunsetStrength;
-  sky += afterglow * exp(-elev * 5.6);
+  vec3 afterglow = vec3(1.22, 0.50, 0.38) * pow(sunDot, 3.6) * 0.40 * uSunsetStrength;
+  afterglow += vec3(1.32, 0.68, 0.52) * pow(sunDot, 12.0) * 0.32 * uSunsetStrength;
+  sky += afterglow * exp(-elev * 5.2);
 
-  // Soft stratified marine twilight clouds (cool lavender-blue bank left, rose-coral wisps far right)
+  // Soft stratified marine twilight clouds (cool lavender-blue bank left, glowing coral-pink wisps far right)
   if (rd.y > 0.002) {
     float cloudT = 1.0 / (rd.y + 0.115);
     vec2 cloudUv = rd.xz * cloudT * 0.34 + vec2(time * 0.0024, -time * 0.0010);
@@ -53,26 +53,26 @@ vec3 evaluateSky(vec3 rd, float time) {
     vec2 stretched = vec2(cloudUv.x * 0.48, cloudUv.y * 2.25);
     float c1 = fbm2D(stretched * 1.4 + vec2(3.1, 1.7));
     float c2 = fbm2D(stretched * 3.0 - vec2(c1 * 0.85, time * 0.0016));
-    float cloudMask = smoothstep(0.40, 0.75, c1 * 0.68 + c2 * 0.38);
+    float cloudMask = smoothstep(0.38, 0.74, c1 * 0.68 + c2 * 0.38);
 
-    // Distinct dusky slate-lavender marine cloud bank hugging the left third of the horizon
-    float leftBank = smoothstep(0.18, -0.58, az) * smoothstep(0.22, 0.012, elev);
-    float highLeftStreak = smoothstep(0.05, -0.78, az) * smoothstep(0.09, 0.21, elev) * smoothstep(0.35, 0.17, elev);
-    float rightPinkWisps = smoothstep(0.45, 0.96, az) * smoothstep(0.15, 0.014, elev) * smoothstep(0.48, 0.78, c2);
-    float elevFade = smoothstep(0.002, 0.025, elev) * smoothstep(0.44, 0.04, elev);
+    // Distinct dusky slate-lavender marine cloud bank hugging the left third + pastel mauve high streaks
+    float leftBank = smoothstep(0.16, -0.58, az) * smoothstep(0.22, 0.012, elev);
+    float highLeftStreak = smoothstep(0.02, -0.78, az) * smoothstep(0.08, 0.21, elev) * smoothstep(0.38, 0.16, elev);
+    float rightPinkWisps = smoothstep(0.42, 0.94, az) * smoothstep(0.18, 0.014, elev) * smoothstep(0.45, 0.76, c2);
+    float elevFade = smoothstep(0.002, 0.025, elev) * smoothstep(0.46, 0.04, elev);
 
-    vec3 leftCloudCol = mix(vec3(0.13, 0.17, 0.34), vec3(0.29, 0.30, 0.48), c2);
-    vec3 mauveStreakCol = vec3(0.40, 0.34, 0.50);
-    vec3 rightCloudCol = mix(vec3(0.98, 0.46, 0.46), vec3(1.32, 0.52, 0.48), c2);
-    vec3 cloudCol = mix(leftCloudCol, rightCloudCol, smoothstep(0.10, 0.82, az) * uSunsetStrength);
+    vec3 leftCloudCol = mix(vec3(0.125, 0.165, 0.345), vec3(0.30, 0.30, 0.49), c2);
+    vec3 mauveStreakCol = vec3(0.45, 0.34, 0.52);
+    vec3 rightCloudCol = mix(vec3(1.08, 0.46, 0.46), vec3(1.45, 0.50, 0.48), c2);
+    vec3 cloudCol = mix(leftCloudCol, rightCloudCol, smoothstep(0.10, 0.80, az) * uSunsetStrength);
 
-    float bankAlpha = saturate(cloudMask * elevFade * (0.24 + leftBank * 0.88));
-    sky = mix(sky, cloudCol, bankAlpha * 0.74);
-    sky = mix(sky, mauveStreakCol, saturate(cloudMask * highLeftStreak * 0.52));
+    float bankAlpha = saturate(cloudMask * elevFade * (0.24 + leftBank * 0.90));
+    sky = mix(sky, cloudCol, bankAlpha * 0.76);
+    sky = mix(sky, mauveStreakCol, saturate(cloudMask * highLeftStreak * 0.62));
     sky = mix(
       sky,
-      mix(leftCloudCol, vec3(1.26, 0.44, 0.46), uSunsetStrength),
-      rightPinkWisps * 0.74
+      mix(leftCloudCol, vec3(1.42, 0.44, 0.46), uSunsetStrength),
+      rightPinkWisps * 0.82
     );
   }
 
@@ -142,9 +142,9 @@ float oceanWaveHeight(vec2 p, float time, out float crestFoam, out float troughM
     * smoothstep(1.8, 5.2, p.x) * smoothstep(0.30, 0.72, fineLace * 0.75 + c2 * 0.45);
 
   // Scalloped frothy shoreline whitewater wash right where waves kiss the beach sand
-  float shoreCurve = 5.18 + sin(p.x * 0.36 + 0.6) * 0.30 + (noise2D(vec2(p.x * 0.55, 1.3)) - 0.5) * 0.34
-    + sin(time * 0.68 + p.x * 0.24) * 0.22;
-  float shoreFoam = exp(-pow((p.y - (shoreCurve + 0.45)) / 0.62, 2.0)) * (0.48 + 0.82 * fineLace);
+  float shoreCurve = 4.95 + sin(p.x * 0.34 + 0.6) * 0.36 + (fbm2D(vec2(p.x * 0.48, 1.3)) - 0.5) * 0.52
+    + sin(time * 0.68 + p.x * 0.22) * 0.22;
+  float shoreFoam = exp(-pow((p.y - (shoreCurve + 0.45)) / 0.72, 2.0)) * (0.50 + 0.85 * fineLace);
 
   crestFoam = saturate(breakerCrest * 0.72 + leftRoller * 0.85 + rightRoller * 0.92 + shoreFoam * 0.96);
   troughMask = saturate(0.5 - chop1 * 0.8 - s1 * 0.35);
