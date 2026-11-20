@@ -19,19 +19,21 @@ vec4 sampleSandField(vec2 xz) {
   vec2 clampedUv = clamp(uv, vec2(0.002), vec2(0.998));
   vec4 tex = textureLod(uSandMap, clampedUv, 0.0);
 
-  // Smoothly blend outside the 11x11m sculpted hero patch into gentle natural beach slope
   vec2 edgeDist = max(vec2(0.0), max(SAND_MIN - xz, xz - SAND_MAX));
   float outFactor = saturate(length(edgeDist) * 0.65);
 
   float fallbackSlope = -0.028 * max(0.0, xz.y + 1.0) + (noise2D(xz * 0.55) - 0.5) * 0.05;
-  float h = mix(tex.r, fallbackSlope, outFactor);
-  vec2 grad = mix(tex.gb, vec2(0.0, -0.028), outFactor);
+  // Slightly amplify sculpted footprint & sand-berm relief for dramatic raking firelight
+  float reliefBoost = 1.42;
+  float h = mix(tex.r * reliefBoost, fallbackSlope, outFactor);
+  vec2 grad = mix(tex.gb * reliefBoost, vec2(0.0, -0.028), outFactor);
   float ao = mix(tex.a, 0.75, outFactor);
 
-  // Gentle shoreline drop toward sea level around z = 5.0..6.6
-  float shoreDrop = smoothstep(4.6, 6.7, xz.y);
+  // Natural undulating shoreline drop down to sea level
+  float shoreLine = 5.15 + sin(xz.x * 0.34 + 0.6) * 0.32 + (noise2D(xz * 0.45) - 0.5) * 0.38;
+  float shoreDrop = smoothstep(shoreLine - 0.65, shoreLine + 1.05, xz.y);
   h = mix(h, SEA_LEVEL - 0.06, shoreDrop);
-  grad.y -= smoothstep(4.6, 6.7, xz.y) * (1.0 - shoreDrop) * 0.14;
+  grad.y -= shoreDrop * (1.0 - shoreDrop) * 0.22;
 
   return vec4(h, grad.x, grad.y, ao);
 }
@@ -40,40 +42,42 @@ float sandHeight(vec2 xz) {
   return sampleSandField(xz).r;
 }
 
-// High-resolution sand normal combining precomputed float16 footprint gradients + micro sand grain
+// High-resolution sand normal combining float16 footprint gradients + chunky disturbed sand + fine grit
 vec3 computeSandNormal(vec2 xz, float distToCam, out float ao, out float grainSparkle) {
   vec4 field = sampleSandField(xz);
   ao = field.a;
 
-  // Fine wind ripples & micro-bumps (faded smoothly with distance to keep foreground crisp & far clean)
-  float detailFade = smoothstep(9.5, 1.2, distToCam);
-  float microFade = smoothstep(5.5, 0.6, distToCam);
+  float mesoFade = smoothstep(9.5, 1.0, distToCam);
+  float microFade = smoothstep(5.2, 0.5, distToCam);
 
-  // Medium sand grain clumping
-  float n1 = noise2D(xz * 19.0);
-  float n2 = noise2D(xz * 47.0 + vec2(11.3, 7.9));
-  float n3 = noise2D(xz * 135.0 + vec2(3.7, 23.1));
+  // Medium disturbed sand ripples & small irregular sand clods (eliminates smooth CG patches!)
+  float epsM = 0.028;
+  float hmX = fbm2D((xz + vec2(epsM, 0.0)) * 5.2) - fbm2D((xz - vec2(epsM, 0.0)) * 5.2);
+  float hmZ = fbm2D((xz + vec2(0.0, epsM)) * 5.2) - fbm2D((xz - vec2(0.0, epsM)) * 5.2);
 
-  // Analytical micro-gradient approximation
-  float eps = 0.012;
-  float gx = (noise2D((xz + vec2(eps, 0.0)) * 24.0) - noise2D((xz - vec2(eps, 0.0)) * 24.0)) * 0.22;
-  float gz = (noise2D((xz + vec2(0.0, eps)) * 24.0) - noise2D((xz - vec2(0.0, eps)) * 24.0)) * 0.22;
+  // Fine granular sand texture
+  float epsF = 0.008;
+  float hfX = noise2D((xz + vec2(epsF, 0.0)) * 28.0) - noise2D((xz - vec2(epsF, 0.0)) * 28.0);
+  float hfZ = noise2D((xz + vec2(0.0, epsF)) * 28.0) - noise2D((xz - vec2(0.0, epsF)) * 28.0);
 
-  // Sharp fine granular sand grit close to camera
-  float gritX = (noise2D((xz + vec2(0.005, 0.0)) * 115.0) - 0.5) * 0.34;
-  float gritZ = (noise2D((xz + vec2(0.0, 0.005)) * 115.0) - 0.5) * 0.34;
+  // Ultra-fine foreground sand grain grit & sparkle
+  float nGritX = noise2D((xz + vec2(0.003, 0.0)) * 135.0) - 0.5;
+  float nGritZ = noise2D((xz + vec2(0.0, 0.003)) * 135.0) - 0.5;
+  float nSpark = noise2D(xz * 82.0 + vec2(11.3, 7.9)) * 0.45 + noise2D(xz * 175.0 + vec2(3.7, 23.1)) * 0.55;
 
-  vec2 grad = field.gb;
-  // Slightly accentuate footprint ridges so raking firelight sculpts crisp sand contours
-  grad *= 1.32;
-  grad += vec2(gx, gz) * detailFade;
-  grad += vec2(gritX, gritZ) * microFade;
+  // Dampen micro-roughness smoothly on wet wave-smoothed shoreline sand
+  float dryMask = smoothstep(5.4, 3.8, xz.y);
 
-  grainSparkle = smoothstep(0.68, 0.96, n2 * 0.45 + n3 * 0.55) * microFade;
+  vec2 grad = field.gb * 1.18;
+  grad += vec2(hmX, hmZ) * 0.62 * mesoFade * dryMask;
+  grad += vec2(hfX, hfZ) * 0.42 * mesoFade * dryMask;
+  grad += vec2(nGritX, nGritZ) * 0.52 * microFade * dryMask;
+
+  grainSparkle = smoothstep(0.66, 0.95, nSpark) * microFade;
   return normalize(vec3(-grad.x, 1.0, -grad.y));
 }
 
-// Oren-Nayar diffuse term for dry granular beach sand
+// Oren-Nayar rough diffuse BRDF for granular beach sand
 float orenNayarDiffuse(vec3 n, vec3 l, vec3 v, float roughness) {
   float ndl = max(dot(n, l), 0.0);
   if (ndl <= 0.0) return 0.0;
@@ -93,38 +97,40 @@ float orenNayarDiffuse(vec3 n, vec3 l, vec3 v, float roughness) {
   return ndl * (A + B * cosPhi * sinAlpha * tanBeta);
 }
 
-// Subtle scattered white shell fragments, dark pebbles, and high-tide organic flecks
+// Authentic quartz sand albedo with tiny shell flecks, pebbles, dark wrack line, and wet shore
 void evaluateSandAlbedo(vec2 xz, float distToCam, float wetness, out vec3 albedo, out float specMask) {
   float macroVar = fbm2D(xz * 0.85 + vec2(4.2, 1.9));
-  float mesoVar = noise2D(xz * 6.5);
+  float mesoVar = noise2D(xz * 7.5);
+  float grainVar = noise2D(xz * 48.0);
 
-  // Neutral coastal quartz sand (reads deep cool slate-blue in dusk shadow & warm amber under fire)
-  vec3 drySand = mix(vec3(0.24, 0.225, 0.215), vec3(0.32, 0.295, 0.27), macroVar * 0.65 + mesoVar * 0.35);
+  // Neutral-cool coastal sand base (reads deep twilight slate-blue in shadow & rich tangerine under fire!)
+  vec3 drySand = mix(vec3(0.18, 0.175, 0.185), vec3(0.27, 0.255, 0.245), macroVar * 0.55 + mesoVar * 0.30 + grainVar * 0.15);
 
-  // Subtle dark soot & charred ash halo immediately inside the campfire ring
+  // Dark soot & ash darkened circle directly under the campfire logs
   float fireDist = length(xz);
-  float sootMask = exp(-fireDist * fireDist * 5.2);
-  drySand = mix(drySand, vec3(0.032, 0.028, 0.028), sootMask * 0.85);
+  float sootMask = exp(-fireDist * fireDist * 4.8);
+  drySand = mix(drySand, vec3(0.018, 0.015, 0.016), sootMask * 0.90);
 
-  // Scattered tiny light shell flecks & dark coastal pebbles (crisp in foreground)
-  float microVis = smoothstep(6.2, 0.9, distToCam);
-  vec2 cell = floor(xz * 26.0);
-  vec2 fuv = fract(xz * 26.0);
+  // Scattered tiny white shell fragments & dark mineral pebbles across foreground sand
+  float microVis = smoothstep(5.8, 0.7, distToCam);
+  vec2 cell = floor(xz * 30.0);
+  vec2 fuv = fract(xz * 30.0);
   vec2 rnd = hash22(cell);
   float fleckDist = length(fuv - (0.2 + 0.6 * rnd));
-  float shellDot = smoothstep(0.14, 0.03, fleckDist) * step(0.86, hash12(cell + 17.3));
-  float pebbleDot = smoothstep(0.18, 0.05, fleckDist) * step(0.83, hash12(cell + 91.7));
+  float shellDot = smoothstep(0.16, 0.03, fleckDist) * step(0.84, hash12(cell + 17.3));
+  float pebbleDot = smoothstep(0.20, 0.04, fleckDist) * step(0.80, hash12(cell + 91.7));
 
-  // Slightly richer debris band near the upper shoreline (z ~ 3.2..4.9)
-  float wrackBand = exp(-pow((xz.y - 4.0) / 0.85, 2.0));
-  float wrackNoise = smoothstep(0.58, 0.86, fbm2D(xz * 5.2 + vec2(9.1, 2.4)));
-  drySand = mix(drySand, vec3(0.09, 0.085, 0.085), wrackBand * wrackNoise * 0.55);
+  // Dark coastal seaweed/pebble wrack band just above the shoreline (distinct in reference photo!)
+  float shoreWave = sin(xz.x * 0.34 + 0.6) * 0.32;
+  float wrackBand = exp(-pow((xz.y - (3.85 + shoreWave)) / 0.85, 2.0));
+  float wrackNoise = smoothstep(0.45, 0.82, fbm2D(xz * 4.2 + vec2(9.1, 2.4)));
+  drySand = mix(drySand, vec3(0.042, 0.045, 0.056), wrackBand * wrackNoise * 0.72);
 
-  drySand = mix(drySand, vec3(0.58, 0.56, 0.54), shellDot * 0.58 * microVis);
-  drySand = mix(drySand, vec3(0.075, 0.075, 0.082), pebbleDot * 0.45 * microVis);
+  drySand = mix(drySand, vec3(0.62, 0.60, 0.58), shellDot * 0.65 * microVis);
+  drySand = mix(drySand, vec3(0.045, 0.046, 0.054), pebbleDot * 0.55 * microVis);
 
-  // Wet sand near shoreline darkens significantly and gains specular sheen
-  albedo = mix(drySand, drySand * 0.36, wetness);
+  // Wet sand near shoreline turns dramatically darker & reflective
+  albedo = mix(drySand, drySand * 0.24, wetness);
   specMask = wetness;
 }
 `;
