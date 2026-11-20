@@ -52,10 +52,11 @@ vec3 sampleFireField(vec3 p, float time, float stoke) {
   float swirlAng = (warp1.y * 1.85 + sin(time * 2.1 + q.y * 4.5) * 0.35) * hNorm;
   wp.xz = rot2(swirlAng) * wp.xz;
 
-  // Vertically stretched sharp flame-tongue carving field (ridged billows!)
-  float nBillow = fbm3DFast(wp * vec3(5.6, 2.5, 5.6) - vec3(0.0, time * (rise * 1.35), 0.0));
-  float nLick = noise3D(wp * vec3(11.5, 4.8, 11.5) - vec3(0.0, time * (rise * 2.15), 0.0));
-  float flameCurl = nBillow * 0.68 + nLick * 0.32;
+  // Vertically stretched sharp flame-tongue carving field (ridged billows + jagged licking folds!)
+  float nBillow = fbm3DFast(wp * vec3(5.8, 2.4, 5.8) - vec3(0.0, time * (rise * 1.38), 0.0));
+  float nLick = noise3D(wp * vec3(12.2, 4.4, 12.2) - vec3(0.0, time * (rise * 2.25), 0.0));
+  float nRidge = 1.0 - abs(noise3D(wp * vec3(8.5, 3.2, 8.5) - vec3(0.0, time * (rise * 1.85), 0.0)) * 2.0 - 1.0);
+  float flameCurl = nBillow * 0.52 + nLick * 0.28 + nRidge * 0.24;
 
   // --- 1. MAIN TEEPEE BUOYANT COMBUSTION COLUMN ---
   // Broad glowing belly inside the planks (y ~ 0.05..0.44) tapering into jagged licking spires (y -> 0.88)
@@ -107,12 +108,12 @@ vec3 sampleFireField(vec3 p, float time, float stoke) {
   // Merge all buoyant combustion shapes
   float envelope = max(max(mainShape, max(tongueA * 0.98, tongueB * 0.96)), branchShape);
 
-  // Carve sharp, dynamic turbulent edges & swirling cutouts!
-  float carveStrength = mix(0.24, 0.86, pow(hNorm, 0.72));
-  float carved = envelope - (0.48 - flameCurl * 0.62) * carveStrength;
+  // Carve sharp, dynamic turbulent edges, jagged upper peaks & swirling cutouts!
+  float carveStrength = mix(0.28, 1.08, pow(hNorm, 0.62));
+  float carved = envelope - (0.56 - flameCurl * 0.72) * carveStrength;
 
   // CRISP photographic shutter-speed flame edge (sharp transition, ZERO milky fuzz!)
-  float flameDensity = smoothstep(0.05, 0.18, carved);
+  float flameDensity = smoothstep(0.04, 0.16, carved);
 
   // High-contrast thermal core gradient:
   // Generous vivid tangerine-orange & molten gold outer ribbons + focused incandescent creamy-white heart!
