@@ -231,10 +231,10 @@ void main() {
       float sparkle = 0.0;
       vec3 n = computeSandNormal(p.xz, tHit, sandAO, sparkle);
 
-      // Animated scalloped shoreline wave swash wetting the distant beach edge seamlessly
-      float shoreCurve = 5.18 + sin(p.x * 0.36 + 0.6) * 0.30 + (noise2D(vec2(p.x * 0.55, 1.3)) - 0.5) * 0.34
-        + sin(uTime * 0.68 + p.x * 0.24) * 0.22;
-      float wetness = smoothstep(shoreCurve - 1.15, shoreCurve + 0.15, p.z);
+      // Animated scalloped shoreline wave swash wetting the gradual beach slope seamlessly
+      float shoreCurve = 4.95 + sin(p.x * 0.34 + 0.6) * 0.36 + (fbm2D(vec2(p.x * 0.48, 1.3)) - 0.5) * 0.52
+        + sin(uTime * 0.68 + p.x * 0.22) * 0.22;
+      float wetness = smoothstep(shoreCurve - 1.35, shoreCurve + 0.05, p.z);
 
       vec3 albedo;
       float specMask;
@@ -306,24 +306,24 @@ void main() {
 
       color = ambTerm + fireAccum;
 
-      // Wet shoreline sand reflects twilight sky and blends seamlessly into scalloped frothy surf!
+      // Wet shoreline sand reflects twilight sky and transitions smoothly through lacy frothy swash!
       if (wetness > 0.01) {
-        vec3 refl = reflect(rd, mix(n, vec3(0.0, 1.0, 0.0), 0.72));
+        vec3 refl = reflect(rd, mix(n, vec3(0.0, 1.0, 0.0), 0.78));
         refl.y = max(refl.y, 0.01);
-        float wetFres = (0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 4.5)) * wetness;
-        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.64, wetFres * 0.54);
+        float wetFres = (0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 4.2)) * wetness;
+        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.58, wetFres * 0.52);
 
-        // Soft organic scalloped whitewater swash bridging the dark wet sand into the ocean surf
-        float swashLace = fbm2D(vec2(p.x * 1.9, p.z * 2.4 + uTime * 0.28));
-        float shoreEdge = smoothstep(shoreCurve - 0.35, shoreCurve + 0.42, p.z);
-        float lipFoam = (exp(-pow((p.z - (shoreCurve + 0.05)) / 0.48, 2.0)) + shoreEdge * 0.65)
-          * smoothstep(0.28, 0.78, swashLace);
-        vec3 foamTint = mix(vec3(0.24, 0.34, 0.52), vec3(0.58, 0.64, 0.74), smoothstep(-2.2, 3.0, p.x)) * uSkyExposure;
-        color = mix(color, foamTint, saturate(lipFoam * 0.92));
+        // Organic frothy surf tongues washing across dark wet beach sand
+        float swashLace = fbm2D(vec2(p.x * 1.45, p.z * 2.1 + uTime * 0.26));
+        float fineBubble = noise2D(vec2(p.x * 5.2, p.z * 7.5 + uTime * 0.42));
+        float foamEdge = shoreCurve + (swashLace - 0.5) * 0.65;
+        float lipFoam = exp(-pow((p.z - foamEdge) / 0.42, 2.0)) * smoothstep(0.28, 0.76, swashLace * 0.72 + fineBubble * 0.35);
+        vec3 foamTint = mix(vec3(0.24, 0.34, 0.54), vec3(0.56, 0.63, 0.74), smoothstep(-2.4, 3.0, p.x)) * uSkyExposure;
+        color = mix(color, foamTint, saturate(lipFoam * 0.88));
 
-        // Feather exact shoreline transition smoothly into ocean radiance (zero ruler-straight cutoff!)
-        if (tOcean < 1e4 && p.z > shoreCurve - 0.1) {
-          float oceanBlend = smoothstep(shoreCurve - 0.05, shoreCurve + 0.55, p.z);
+        // Seamless gradual blend into ocean surface (eliminates any straight shoreline seam!)
+        if (tOcean < 1e4 && p.z > shoreCurve - 0.35) {
+          float oceanBlend = smoothstep(shoreCurve - 0.30, shoreCurve + 0.55, p.z);
           vec3 oceanEdgeCol = shadeOcean(ro, bgRd, tOcean, uTime, fireMainPos, fireMainCol);
           color = mix(color, oceanEdgeCol, oceanBlend);
         }
