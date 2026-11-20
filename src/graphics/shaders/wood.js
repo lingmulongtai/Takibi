@@ -154,14 +154,14 @@ vec2 mapWood(vec3 p) {
   dWood = min(dWood, min(dBackLeft, dBackRight));
 
   // --- 2. ICONIC EXTENDING SIDE DRIFTWOOD BRANCHES ---
-  // Far-left dark crooked driftwood branch resting cleanly across the orange-lit sand
+  // Far-left dark crooked driftwood branch grounded solidly across the orange-lit sand
   float dExtLeft = sdGnarledBranch(
     p,
-    vec3(-0.68, -0.015, -0.095),
-    vec3(-0.22, 0.165, -0.065),
-    0.020,
+    vec3(-0.70, -0.048, -0.105),
+    vec3(-0.22, 0.165, -0.068),
+    0.017,
     0.032,
-    0.022,
+    0.024,
     1.7
   );
   dWood = min(dWood, dExtLeft);
@@ -170,10 +170,10 @@ vec2 mapWood(vec3 p) {
   float dExtRight = sdGnarledBranch(
     p,
     vec3(0.11, 0.375, -0.055),
-    vec3(0.59, -0.042, -0.14),
-    0.040,
-    0.028,
-    0.015,
+    vec3(0.58, -0.058, -0.145),
+    0.042,
+    0.024,
+    0.020,
     2.9
   );
   dWood = min(dWood, dExtRight);
@@ -276,8 +276,13 @@ vec3 shadeWoodAndCharcoal(
   float grainNoise = fbm3DFast(vec3(p.x * 32.0, p.y * 5.5, p.z * 32.0));
   float fineGrain = noise3D(vec3(p.x * 84.0, p.y * 14.0, p.z * 84.0));
 
-  // Rich dark weathered split driftwood (outer front planks read dark espresso/slate-brown like photo!)
-  vec3 driftwoodAlbedo = mix(vec3(0.032, 0.025, 0.022), vec3(0.095, 0.072, 0.056), grainNoise * 0.72 + fineGrain * 0.28);
+  // Rich weathered split driftwood: crisp vertical grain streaks visible on front-right plank!
+  float grainStripes = 0.5 + 0.5 * sin(p.x * 165.0 + grainNoise * 7.5);
+  vec3 driftwoodAlbedo = mix(
+    vec3(0.028, 0.022, 0.020),
+    vec3(0.118, 0.090, 0.068),
+    grainNoise * 0.56 + fineGrain * 0.24 + grainStripes * 0.20
+  );
 
   vec3 toCore = normalize(fireCorePos - p);
   float facingFire = saturate(dot(n, toCore));
