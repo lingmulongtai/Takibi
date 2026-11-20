@@ -40,10 +40,10 @@ void main() {
 
   vec3 col = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3) / max(w0 + w1 + w2 + w3, 1e-4);
 
-  // Soft-knee HDR threshold keeps the cool dusk sky completely crisp while blooming the fire & embers
+  // Soft-knee HDR threshold keeps sky & outer flame edges crisp while blooming incandescent cores
   float br = max(col.r, max(col.g, col.b));
-  float threshold = 1.08;
-  float knee = 0.65;
+  float threshold = 1.62;
+  float knee = 0.82;
   float soft = clamp(br - threshold + knee, 0.0, 2.0 * knee);
   soft = (soft * soft) / (4.0 * knee + 1e-5);
   float contrib = max(soft, br - threshold) / max(br, 1e-5);
@@ -204,10 +204,10 @@ void main() {
   vec3 bloomCol = texture(uBloomTex, vUv).rgb;
   vec3 halationCol = texture(uHalationTex, vUv).rgb;
 
-  // Combine linear HDR radiance + multi-scale bloom + warm red-amber film halation
+  // Combine linear HDR radiance + tight photographic bloom + subtle warm amber film halation
   vec3 hdr = sceneCol + sparksCol;
-  hdr += bloomCol * 0.30;
-  hdr += halationCol * vec3(1.0, 0.36, 0.09) * 0.22;
+  hdr += bloomCol * 0.15;
+  hdr += halationCol * vec3(1.0, 0.32, 0.06) * 0.11;
 
   // Photographic exposure calibrated for rich dusk twilight + blazing HDR campfire
   hdr *= 1.18;
