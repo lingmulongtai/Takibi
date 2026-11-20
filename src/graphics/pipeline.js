@@ -18,6 +18,7 @@ import {
   COMPOSITE_FRAGMENT_SHADER,
 } from './shaders/post.js';
 import { SparkSystem } from './sparks.js';
+import { FireFluidSim } from './fire-sim.js';
 
 function normalize3(v) {
   const len = Math.hypot(v[0], v[1], v[2]) || 1;
@@ -81,6 +82,10 @@ export class TakibiPipeline {
 
     this.sparks = new SparkSystem(gl, 240);
     this.sparks.setActiveLimit(this.quality.sparkCount);
+
+    // Real-time GPU Navier-Stokes buoyant fire fluid simulator (pre-warmed to roaring equilibrium!)
+    this.fireSim = new FireFluidSim(gl, 256, 224);
+    this.fireSim.warmUp(130);
 
     this.targets = {
       scene: null,
@@ -207,7 +212,8 @@ export class TakibiPipeline {
     const rw = this.renderWidth;
     const rh = this.renderHeight;
 
-    // Update 3D spark particle physics
+    // Step real-time Navier-Stokes buoyant fire fluid simulation & 3D spark physics
+    this.fireSim.step(dt, stoke);
     this.sparks.update(dt, time, stoke);
 
     // --- PASS 1: Main HDR Raymarched Scene + Volumetric Fire ---
@@ -227,6 +233,10 @@ export class TakibiPipeline {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.textures.sandMap);
     gl.uniform1i(sceneProg.uniform('uSandMap'), 2);
+
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.fireSim.texture);
+    gl.uniform1i(sceneProg.uniform('uFireSimTex'), 3);
 
     gl.uniform2f(sceneProg.uniform('uResolution'), rw, rh);
     gl.uniform1f(sceneProg.uniform('uTime'), time);
@@ -354,6 +364,7 @@ export class TakibiPipeline {
     const gl = this.gl;
     this._destroyRenderTargets();
     this.sparks.destroy();
+    this.fireSim.destroy();
     Object.values(this.programs).forEach((p) => p.destroy());
     Object.values(this.textures).forEach((t) => gl.deleteTexture(t));
     gl.deleteVertexArray(this.vao);

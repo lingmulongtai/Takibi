@@ -166,18 +166,9 @@ void main() {
     bgRd = normalize(rd + vec3((hz1 * 0.0038 + hz2 * 0.0016), hz1 * 0.00055, 0.0) * hazeZone * (1.0 + uStoke * 0.35));
   }
 
-  // Analytical ocean plane intersection (y = SEA_LEVEL)
-  float tOcean = 1e5;
-  if (bgRd.y < -0.0004) {
-    float cand = (SEA_LEVEL - ro.y) / bgRd.y;
-    if (cand > 0.0) {
-      tOcean = cand;
-    }
-  }
-
   // Raymarch solid scene (sculpted beach sand + driftwood planks/branches + charcoal bed)
   float t = 0.08;
-  float tMaxSolid = min(tOcean + 1.2, 26.0);
+  float tMaxSolid = 14.5;
   float hitMat = MAT_NONE;
   float tHit = 1e5;
 
@@ -215,13 +206,21 @@ void main() {
     tHit = 0.5 * (tLo + tHi);
   }
 
-  // Resolve whether solid sand/wood or the ocean lies closer along this ray
+  // True 3D raymarch of the displaced ocean heightfield, strictly beyond world z >= 5.25m!
+  float tOcean = 1e5;
+  bool hitOcean = false;
+  if (bgRd.y < -0.0002) {
+    float oceanSearchMax = (hitMat == MAT_NONE) ? 240.0 : tHit + 0.14;
+    hitOcean = marchOcean3D(ro, bgRd, 5.25, oceanSearchMax, uTime, tOcean);
+  }
+
+  // Resolve whether solid sand/wood, 3D displaced ocean waves, or twilight sky was hit!
   vec3 color = vec3(0.0);
   float sceneDepth = 100.0;
 
-  bool hitOceanInstead = (hitMat == MAT_NONE || (hitMat == MAT_SAND && tOcean < tHit));
+  bool hitSolid = (hitMat != MAT_NONE) && !(hitMat == MAT_SAND && hitOcean && tOcean < tHit);
 
-  if (!hitOceanInstead) {
+  if (hitSolid) {
     sceneDepth = tHit;
     vec3 p = ro + rd * tHit;
     vec3 v = -rd;
@@ -232,9 +231,9 @@ void main() {
       vec3 n = computeSandNormal(p.xz, tHit, sandAO, sparkle);
 
       // Animated scalloped shoreline wave swash wetting the gradual beach slope seamlessly
-      float shoreCurve = 4.95 + sin(p.x * 0.34 + 0.6) * 0.36 + (fbm2D(vec2(p.x * 0.48, 1.3)) - 0.5) * 0.52
-        + sin(uTime * 0.68 + p.x * 0.22) * 0.22;
-      float wetness = smoothstep(shoreCurve - 1.35, shoreCurve + 0.05, p.z);
+      float shoreCurve = 5.38 + sin(p.x * 0.30 + 0.5) * 0.34 + (fbm2D(vec2(p.x * 0.42, 1.3)) - 0.5) * 0.48
+        + sin(uTime * 0.78 + sin(p.x * 0.26) * 1.3) * 0.22;
+      float wetness = smoothstep(shoreCurve - 1.45, shoreCurve + 0.05, p.z);
 
       vec3 albedo;
       float specMask;
@@ -306,24 +305,25 @@ void main() {
 
       color = ambTerm + fireAccum;
 
-      // Wet shoreline sand reflects twilight sky and transitions smoothly through lacy frothy swash!
+      // Wet shoreline sand reflects twilight sky and transitions smoothly through frothy lacy surf wash!
       if (wetness > 0.01) {
         vec3 refl = reflect(rd, mix(n, vec3(0.0, 1.0, 0.0), 0.78));
         refl.y = max(refl.y, 0.01);
         float wetFres = (0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 4.2)) * wetness;
-        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.58, wetFres * 0.52);
+        color = mix(color, evaluateSky(normalize(refl), uTime) * 0.55, wetFres * 0.48);
 
-        // Organic frothy surf tongues washing across dark wet beach sand
-        float swashLace = fbm2D(vec2(p.x * 1.45, p.z * 2.1 + uTime * 0.26));
-        float fineBubble = noise2D(vec2(p.x * 5.2, p.z * 7.5 + uTime * 0.42));
-        float foamEdge = shoreCurve + (swashLace - 0.5) * 0.65;
-        float lipFoam = exp(-pow((p.z - foamEdge) / 0.42, 2.0)) * smoothstep(0.28, 0.76, swashLace * 0.72 + fineBubble * 0.35);
-        vec3 foamTint = mix(vec3(0.24, 0.34, 0.54), vec3(0.56, 0.63, 0.74), smoothstep(-2.4, 3.0, p.x)) * uSkyExposure;
-        color = mix(color, foamTint, saturate(lipFoam * 0.88));
+        // Lacy bubbly whitewater swash foam creeping organically onto the dark wet beach
+        float webFoam = foamWebNoise(vec2(p.x * 2.4, p.z * 2.8 + uTime * 0.25));
+        float swashLace = fbm2D(vec2(p.x * 1.35, p.z * 1.9 + uTime * 0.24));
+        float foamEdge = shoreCurve + (swashLace - 0.5) * 0.72;
+        float lipFoam = exp(-pow((p.z - foamEdge) / 0.46, 2.0))
+          * smoothstep(0.24, 0.78, swashLace * 0.60 + webFoam * 0.55);
+        vec3 foamTint = mix(vec3(0.24, 0.34, 0.54), vec3(0.60, 0.66, 0.78), smoothstep(-2.4, 3.0, p.x)) * uSkyExposure;
+        color = mix(color, foamTint, saturate(lipFoam * 0.92));
 
-        // Seamless gradual blend into ocean surface (eliminates any straight shoreline seam!)
-        if (tOcean < 1e4 && p.z > shoreCurve - 0.35) {
-          float oceanBlend = smoothstep(shoreCurve - 0.30, shoreCurve + 0.55, p.z);
+        // Feather shoreline contact cleanly into the 3D raymarched ocean waves
+        if (hitOcean && p.z > shoreCurve - 0.22) {
+          float oceanBlend = smoothstep(shoreCurve - 0.18, shoreCurve + 0.58, p.z);
           vec3 oceanEdgeCol = shadeOcean(ro, bgRd, tOcean, uTime, fireMainPos, fireMainCol);
           color = mix(color, oceanEdgeCol, oceanBlend);
         }
@@ -348,7 +348,7 @@ void main() {
         skyAmbAvg
       );
     }
-  } else if (tOcean < 1e4) {
+  } else if (hitOcean) {
     sceneDepth = tOcean;
     color = shadeOcean(ro, bgRd, tOcean, uTime, fireMainPos, fireMainCol);
   } else {
