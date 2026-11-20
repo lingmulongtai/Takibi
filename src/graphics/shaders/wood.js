@@ -77,27 +77,27 @@ vec2 mapWood(vec3 p) {
   float g = 0.0;
   float dWood = 1e5;
 
-  // --- 1. HERO FRONT SPLIT PLANKS (iconic broad flat dark slabs framing the fire) ---
-  // Front-left broad weathered plank (dark silhouetted slab leaning slightly right)
+  // --- 1. HERO FRONT SPLIT PLANKS (broader, slightly lower squat teepee base matching photo proportions!) ---
+  // Front-left broad weathered plank (dark silhouetted slab)
   float dFrontLeft = sdPlank(
     p,
-    vec3(-0.19, -0.065, -0.225),
-    vec3(-0.082, 0.355, -0.072),
+    vec3(-0.20, -0.065, -0.225),
+    vec3(-0.095, 0.305, -0.072),
     vec3(-0.22, 0.08, -0.97),
-    vec3(0.086, 0.22, 0.022),
+    vec3(0.090, 0.195, 0.022),
     0.005,
     1.1,
     g
   );
   dWood = min(dWood, dFrontLeft);
 
-  // Front-right broad weathered plank (leaning slightly left, revealing vertical split grain)
+  // Front-right broad weathered plank (angled flatter toward camera showing crisp split wood grain)
   float dFrontRight = sdPlank(
     p,
-    vec3(0.145, -0.065, -0.232),
-    vec3(0.036, 0.362, -0.075),
-    vec3(0.32, 0.08, -0.94),
-    vec3(0.088, 0.225, 0.022),
+    vec3(0.15, -0.065, -0.232),
+    vec3(0.042, 0.312, -0.075),
+    vec3(0.30, 0.08, -0.95),
+    vec3(0.092, 0.200, 0.022),
     0.005,
     2.4,
     g
@@ -107,10 +107,10 @@ vec2 mapWood(vec3 p) {
   // Left-flank teepee plank angled back-left
   float dSideLeft = sdPlank(
     p,
-    vec3(-0.335, -0.06, -0.095),
-    vec3(-0.125, 0.345, -0.015),
+    vec3(-0.345, -0.06, -0.095),
+    vec3(-0.140, 0.295, -0.015),
     vec3(-0.78, 0.10, -0.62),
-    vec3(0.072, 0.21, 0.020),
+    vec3(0.074, 0.185, 0.020),
     0.005,
     3.7,
     g
@@ -121,9 +121,9 @@ vec2 mapWood(vec3 p) {
   float dInnerCenter = sdPlank(
     p,
     vec3(-0.015, -0.05, -0.06),
-    vec3(-0.018, 0.29, 0.01),
+    vec3(-0.018, 0.255, 0.01),
     vec3(0.10, 0.0, -0.99),
-    vec3(0.044, 0.17, 0.018),
+    vec3(0.046, 0.155, 0.018),
     0.005,
     4.5,
     g
@@ -134,9 +134,9 @@ vec2 mapWood(vec3 p) {
   float dBackLeft = sdPlank(
     p,
     vec3(-0.22, -0.06, 0.16),
-    vec3(-0.05, 0.37, 0.04),
+    vec3(-0.05, 0.32, 0.04),
     vec3(-0.52, 0.1, 0.85),
-    vec3(0.078, 0.22, 0.020),
+    vec3(0.078, 0.195, 0.020),
     0.005,
     5.2,
     g
@@ -144,9 +144,9 @@ vec2 mapWood(vec3 p) {
   float dBackRight = sdPlank(
     p,
     vec3(0.25, -0.06, 0.14),
-    vec3(0.08, 0.38, 0.03),
+    vec3(0.08, 0.325, 0.03),
     vec3(0.56, 0.1, 0.82),
-    vec3(0.078, 0.22, 0.020),
+    vec3(0.078, 0.195, 0.020),
     0.005,
     6.8,
     g
@@ -157,72 +157,73 @@ vec2 mapWood(vec3 p) {
   // Far-left dark crooked driftwood branch resting continuously along the orange-lit sand
   float dExtLeft = sdGnarledBranch(
     p,
-    vec3(-0.69, -0.022, -0.105),
-    vec3(-0.21, 0.165, -0.068),
-    0.021,
-    0.031,
+    vec3(-0.70, -0.024, -0.105),
+    vec3(-0.21, 0.150, -0.068),
+    0.020,
+    0.030,
     0.013,
     1.7
   );
   dWood = min(dWood, dExtLeft);
 
-  // Far-right heavy weathered driftwood limb descending diagonally onto the sand (with licking flame!)
+  // Far-right heavy weathered driftwood limb descending diagonally onto the sand (with hugging flame!)
   float dExtRight = sdGnarledBranch(
     p,
-    vec3(0.11, 0.375, -0.055),
+    vec3(0.105, 0.325, -0.055),
     vec3(0.58, -0.058, -0.145),
-    0.042,
+    0.040,
     0.024,
-    0.020,
+    0.018,
     2.9
   );
   dWood = min(dWood, dExtRight);
 
-  // --- 3. BOLD DARK CHARRED BRANCHES RISING THROUGH THE ROARING FLAME ---
-  // Primary tall crooked vertical charred stick slicing right through the white-gold core
+  // --- 3. BOLD DARK CHARRED BRANCHES RISING IN RAZOR-SHARP SILHOUETTE ACROSS THE FLAME! ---
+  // Positioned slightly forward of the main fire curtain (z ~ -0.075..-0.025) so they slice
+  // starkly across the incandescent white-yellow core just like the reference photograph!
   float dVertMain = sdGnarledBranch(
     p,
-    vec3(-0.085, 0.32, -0.042),
-    vec3(0.012, 0.815, 0.004),
-    0.028,
-    0.012,
-    0.030,
+    vec3(-0.105, 0.28, -0.068),
+    vec3(-0.008, 0.795, -0.028),
+    0.026,
+    0.011,
+    0.036,
     4.1
   );
-  // Secondary vertical right-side charred prong creating the classic forked silhouette
+  // Secondary vertical right-side charred prong creating the unmistakable forked silhouette
   float dVertRight = sdGnarledBranch(
     p,
-    vec3(0.025, 0.35, 0.008),
-    vec3(0.102, 0.745, 0.035),
-    0.024,
-    0.011,
+    vec3(0.012, 0.31, -0.042),
+    vec3(0.082, 0.725, -0.016),
+    0.022,
+    0.010,
     0.022,
     5.6
   );
-  // Prominent dark horizontal/diagonal charred cross-sticks inside the lower-middle flame
+  // Prominent dark horizontal/diagonal charred cross-sticks slicing across the blazing lower-mid flame
   float dCrossLow = sdGnarledBranch(
     p,
-    vec3(-0.155, 0.395, -0.058),
-    vec3(0.098, 0.468, -0.042),
-    0.026,
-    0.023,
+    vec3(-0.165, 0.345, -0.072),
+    vec3(0.095, 0.420, -0.058),
+    0.025,
+    0.022,
     0.014,
     7.3
   );
   float dCrossMid = sdGnarledBranch(
     p,
-    vec3(-0.135, 0.535, -0.032),
-    vec3(0.042, 0.425, -0.056),
-    0.020,
-    0.024,
+    vec3(-0.140, 0.475, -0.056),
+    vec3(0.038, 0.375, -0.072),
+    0.019,
+    0.023,
     0.016,
     8.9
   );
   float dBackSpire = sdGnarledBranch(
     p,
-    vec3(-0.045, 0.35, 0.055),
-    vec3(-0.105, 0.675, 0.062),
-    0.021,
+    vec3(-0.045, 0.31, 0.042),
+    vec3(-0.095, 0.640, 0.050),
+    0.020,
     0.010,
     0.020,
     9.4
