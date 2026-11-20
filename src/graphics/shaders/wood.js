@@ -154,14 +154,14 @@ vec2 mapWood(vec3 p) {
   dWood = min(dWood, min(dBackLeft, dBackRight));
 
   // --- 2. ICONIC EXTENDING SIDE DRIFTWOOD BRANCHES ---
-  // Far-left dark crooked driftwood branch grounded solidly across the orange-lit sand
+  // Far-left dark crooked driftwood branch resting continuously along the orange-lit sand
   float dExtLeft = sdGnarledBranch(
     p,
-    vec3(-0.70, -0.048, -0.105),
-    vec3(-0.22, 0.165, -0.068),
-    0.017,
-    0.032,
-    0.024,
+    vec3(-0.69, -0.022, -0.105),
+    vec3(-0.21, 0.165, -0.068),
+    0.021,
+    0.031,
+    0.013,
     1.7
   );
   dWood = min(dWood, dExtLeft);
@@ -326,10 +326,10 @@ vec3 shadeWoodAndCharcoal(
   vec3 rightBranchPt = mix(vec3(0.14, 0.35, -0.06), vec3(0.54, 0.0, -0.13), rightBranchT);
   float rightBranchBurn = smoothstep(0.068, 0.022, length(p - rightBranchPt)) * smoothstep(0.15, 0.72, n.y);
 
-  // Strictly gate embers by facingFire so NO red dots ever appear on cool camera-facing outer plank faces!
-  float innerFireExposure = smoothstep(0.28, 0.78, facingFire) * smoothstep(0.32, 0.08, radialFromCore);
-  float upperStickEdge = upperZone * fres * 0.55;
-  float burnHeat = saturate(innerFireExposure + upperStickEdge + rightBranchBurn * 0.72);
+  // Strictly gate embers so front camera-facing plank bevels stay crisp weathered dark wood!
+  float innerFireExposure = smoothstep(0.45, 0.85, facingFire) * smoothstep(0.28, 0.08, radialFromCore);
+  float upperStickEdge = smoothstep(0.38, 0.56, p.y) * smoothstep(0.32, 0.06, length(p.xz)) * fres * 0.45;
+  float burnHeat = saturate(innerFireExposure + upperStickEdge + rightBranchBurn * 0.62);
 
   float emberPulse = 0.74 + 0.26 * sin(time * 2.5 + p.y * 8.5 + crackPattern * 5.0);
   float emberAmt = fineCrack * pow(burnHeat, 1.55) * emberPulse * (1.0 + stoke * 0.45);
