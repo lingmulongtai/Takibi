@@ -1,132 +1,88 @@
 /**
- * 3D Volumetric Raymarched Campfire Shader Module.
- * High-contrast, sharp-edged photographic fire sculpted from a buoyant upward-streaming
- * turbulent combustion column with sinuous licking tongues wrapping around the vertical
- * charred branches, plus a ragged flickering flame climbing the right driftwood branch.
+ * 3D Volumetric Raymarched Campfire Shader Module coupled to the GPU Navier-Stokes Fluid Sim!
+ * Places the roaring Navier-Stokes fluid curtain accurately INSIDE the driftwood teepee & BEHIND
+ * the front dark planks and charred foreground sticks, so the dark wood silhouettes slice cleanly
+ * across the blazing white-yellow core while licking orange-gold tongues wrap naturally around them!
  */
 
 export const FIRE_GLSL = /* glsl */ `
+uniform sampler2D uFireSimTex;
 uniform float uFireGain;
 uniform float uStoke;
 uniform int uFireSteps;
 
-float segDist3(vec3 p, vec3 a, vec3 b, out float t) {
-  vec3 pa = p - a;
-  vec3 ba = b - a;
-  t = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  return length(pa - ba * t);
-}
+const vec2 FIRE_SIM_MIN = vec2(-0.62, -0.04);
+const vec2 FIRE_SIM_MAX = vec2(0.72, 1.08);
+const vec2 FIRE_SIM_INV = 1.0 / (FIRE_SIM_MAX - FIRE_SIM_MIN);
 
-// Sharp-edged turbulent flame density, temperature, and delicate rising smoke
-// Returns vec3(flameTemp01, flameDensity, smokeDensity)
+// Sample the 3D volumetric fire driven directly by our real-time Navier-Stokes fluid simulation!
+// Returns vec3(temp01, flameDensity, smokeDensity)
 vec3 sampleFireField(vec3 p, float time, float stoke) {
-  // Subtle coastal breeze leaning the upper tongues gently right & slightly back
-  float gust = sin(time * 0.58) * 0.36 + sin(time * 1.41 + 0.9) * 0.22 + 0.22;
-  float hNorm = saturate((p.y - 0.04) / 0.88);
+  // Exact 3D Z spine:
+  // Main Navier-Stokes flame sits at z ~ +0.038 (directly BEHIND the dark charred vertical branches
+  // z = -0.072..-0.016 so those sticks stand in crisp black silhouette across the blazing fire!),
+  // while transitioning cleanly onto the diagonal right driftwood branch for p.x > 0.16!
+  float branchMix = smoothstep(0.16, 0.30, p.x);
+  float brT = saturate((p.x - 0.16) / 0.36);
+  float zCenter = mix(0.038, mix(-0.058, -0.138, brT), branchMix);
 
-  vec3 q = p;
-  q.x -= gust * 0.082 * hNorm * hNorm;
-  q.z -= gust * 0.022 * hNorm * hNorm;
+  float hNorm = saturate((p.y - 0.04) / 0.82);
+  float zHalfThick = mix(mix(0.105, 0.076, hNorm), 0.042, branchMix);
 
-  // Strongly vertically elongated advection gives genuine stretching flame tongues (never round blobs!)
-  float rise = 1.95 + stoke * 0.50;
-  vec3 flow1 = q * vec3(3.4, 1.45, 3.4) - vec3(gust * 0.28, time * rise, 0.0);
-  vec3 flow2 = q * vec3(6.8, 2.75, 6.8) - vec3(gust * 0.45, time * (rise * 1.55), 0.0);
+  // Organic 3D depth undulation so local flame licks still weave subtly around the vertical branches
+  float zWobble = (noise3D(vec3(p.x * 5.2, p.y * 3.0 - time * 2.6, p.z * 5.2)) - 0.5) * mix(0.025, 0.085, hNorm);
+  float dz = (p.z - zCenter + zWobble) / max(zHalfThick, 0.01);
+  float zMask = 1.0 - dz * dz;
+  if (zMask <= 0.001) {
+    return vec3(0.0);
+  }
+  float zEnv = pow(saturate(zMask), 0.72);
 
-  // Two-octave domain warp creating crisp curling Kelvin-Helmholtz flame ribbons
-  vec3 warp1 = vec3(
-    fbm3DFast(flow1 + vec3(1.3, 0.0, 2.9)) - 0.5,
-    fbm3DFast(flow1 + vec3(4.7, 1.9, 0.8)) - 0.5,
-    fbm3DFast(flow1 + vec3(2.4, 5.6, 6.7)) - 0.5
+  // Keep front outer faces of the two dark front planks free of foreground haze,
+  // while letting the blazing core shine brightly through the center V-gap & over the right branch!
+  float plankShield = smoothstep(-0.085, -0.042, p.z)
+    + smoothstep(0.27, 0.33, p.y)
+    + smoothstep(0.085, 0.032, abs(p.x))
+    + smoothstep(0.14, 0.24, p.x);
+  zEnv *= saturate(plankShield);
+  if (zEnv <= 0.002) return vec3(0.0);
+
+  // Map 3D world point into Navier-Stokes fluid UV with subtle depth-slice parallax
+  vec2 sliceParallax = vec2(
+    (p.z - zCenter) * 0.18 + sin(p.z * 16.0 + time * 2.8) * 0.012,
+    abs(p.z - zCenter) * 0.10
   );
-  vec3 warp2 = vec3(
-    noise3D(flow2 + vec3(7.1, 2.2, 1.5)) - 0.5,
-    noise3D(flow2 + vec3(3.3, 8.4, 4.1)) - 0.5,
-    noise3D(flow2 + vec3(9.2, 1.1, 5.8)) - 0.5
-  );
+  vec2 simUv = (p.xy + sliceParallax - FIRE_SIM_MIN) * FIRE_SIM_INV;
+  if (simUv.x <= 0.005 || simUv.x >= 0.995 || simUv.y <= 0.005 || simUv.y >= 0.995) {
+    return vec3(0.0);
+  }
 
-  // Narrow turbulence at core base -> sweeping fluidic curling flame folds & swirling licks up high!
-  float turbAmp = mix(0.075, 0.315, pow(hNorm, 0.68)) * (1.0 + stoke * 0.15);
-  vec3 wp = q + warp1 * turbAmp + warp2 * (turbAmp * 0.42);
-  // Subtle helical swirl folds the straight vertical edges into organic curling fire ribbons!
-  float swirlAng = (warp1.y * 1.85 + sin(time * 2.1 + q.y * 4.5) * 0.35) * hNorm;
-  wp.xz = rot2(swirlAng) * wp.xz;
+  vec4 sim = textureLod(uFireSimTex, simUv, 0.0);
+  float fuel = sim.r;
+  float simTemp = sim.g;
+  float simSmoke = sim.b;
+  float simReact = sim.a;
 
-  // Vertically stretched sharp flame-tongue carving field (ridged billows + jagged licking folds!)
-  float nBillow = fbm3DFast(wp * vec3(5.8, 2.4, 5.8) - vec3(0.0, time * (rise * 1.38), 0.0));
-  float nLick = noise3D(wp * vec3(12.2, 4.4, 12.2) - vec3(0.0, time * (rise * 2.25), 0.0));
-  float nRidge = 1.0 - abs(noise3D(wp * vec3(8.5, 3.2, 8.5) - vec3(0.0, time * (rise * 1.85), 0.0)) * 2.0 - 1.0);
-  float flameCurl = nBillow * 0.52 + nLick * 0.28 + nRidge * 0.24;
+  // Fine 3D turbulent filament modulation gives crisp depth-layered flame strands & curling holes!
+  float micro3D = noise3D(p * vec3(15.0, 6.8, 15.0) - vec3(0.0, time * 4.6, 0.0));
+  float ridge3D = 1.0 - abs(noise3D(p * vec3(9.5, 4.2, 9.5) - vec3(0.0, time * 3.4, 0.0)) * 2.0 - 1.0);
+  float depthMod = 0.68 + 0.34 * micro3D + 0.24 * ridge3D;
 
-  // --- 1. MAIN TEEPEE BUOYANT COMBUSTION COLUMN ---
-  // Broad glowing belly inside the planks (y ~ 0.05..0.44) tapering into jagged licking spires (y -> 0.88)
-  float colY = saturate((wp.y - 0.03) / (0.86 + stoke * 0.10));
-  float baseRad = mix(0.245, 0.032, pow(colY, 0.76)) * (1.0 + stoke * 0.10);
-  baseRad *= smoothstep(-0.02, 0.10, wp.y);
+  // Local temperature modulated by 3D depth shell (hottest in protected interior, cooler orange on outside!)
+  float localTemp = simTemp * (0.38 + 0.70 * zEnv) * depthMod + simReact * 0.10 * zEnv;
 
-  // Asymmetric natural cross-section slightly wider horizontally along the driftwood gap
-  vec2 radialP = (wp.xz - vec2(0.0, -0.015)) * vec2(0.88, 1.12);
-  float dCol = length(radialP) / max(baseRad, 0.001);
-  float mainShape = saturate(1.0 - dCol) * smoothstep(1.03, 0.18, colY);
+  // Razor-sharp photographic flame boundary driven directly by Navier-Stokes fluid curls!
+  // Zero foggy orange mist around edges; crisp sharp licking curtains + subtle wispy tips only at very top!
+  float crispEdge = smoothstep(0.21, 0.275, localTemp);
+  float wispyTip = smoothstep(0.13, 0.23, localTemp) * smoothstep(0.56, 0.90, hNorm) * 0.22;
+  float flameDensity = saturate(crispEdge + wispyTip) * zEnv;
 
-  // --- 2. TWO ASYMMETRIC RISING TONGUES WRAPPING AROUND THE FORKED VERTICAL STICKS ---
-  float swayA = sin(time * 3.1 + wp.y * 4.4) * 0.038;
-  float swayB = cos(time * 2.6 + wp.y * 5.0) * 0.044;
+  // Clean thermal ramp: crisp fiery orange rim -> vivid molten lemon-gold -> blinding white-yellow core!
+  float temp01 = saturate((localTemp - 0.16) / 1.02);
+  temp01 = saturate(temp01 + fuel * 0.22 * zEnv * smoothstep(0.55, 0.14, hNorm));
 
-  // Left-central tall flame ribbon licking up the left flank of the main charred branch
-  float yA = saturate((wp.y - 0.24) / (0.64 + stoke * 0.11));
-  float rA = mix(0.165, 0.020, pow(yA, 0.82));
-  vec2 pA = wp.xz - vec2(-0.085 + swayA, -0.018);
-  float tongueA = saturate(1.0 - length(pA * vec2(0.95, 1.15)) / max(rA, 0.001))
-    * smoothstep(0.0, 0.16, yA) * smoothstep(1.0, 0.25, yA);
-
-  // Right-central rising flame tongue curling past the right charred prong & darting outward-right
-  float yB = saturate((wp.y - 0.26) / (0.60 + stoke * 0.10));
-  float rB = mix(0.155, 0.022, pow(yB, 0.84));
-  vec2 pB = wp.xz - vec2(0.072 + swayB + yB * 0.045, 0.008);
-  float tongueB = saturate(1.0 - length(pB * vec2(0.92, 1.18)) / max(rB, 0.001))
-    * smoothstep(0.0, 0.15, yB) * smoothstep(1.0, 0.22, yB);
-
-  // --- 3. SHARP LICKING FLAMES CRAWLING UP THE RIGHT-LEANING DRIFTWOOD BRANCH ---
-  // Anchored tightly above the branch spine with upward-stretched licking peaks
-  float bt = 0.0;
-  vec3 brStart = vec3(0.19, 0.305, -0.068);
-  vec3 brEnd = vec3(0.50, 0.045, -0.130);
-  // Shift sampling point slightly down so the flame rises UPWARD off the top bark surface
-  float dBr = segDist3(wp - vec3(0.0, 0.042, 0.0), brStart, brEnd, bt);
-  float brTap = smoothstep(0.02, 0.16, bt) * smoothstep(0.96, 0.56, bt);
-  float brRibbon = saturate(1.0 - dBr / (0.046 * (0.65 + 0.55 * sin(bt * PI)))) * brTap;
-
-  // One lively small upward flame lick dancing off the mid-right branch (signature detail from photo!)
-  float yBL = saturate((wp.y - 0.12) / 0.26);
-  vec2 pBL = wp.xz - vec2(0.375 + swayA * 0.45, -0.098);
-  float brLick = saturate(1.0 - length(pBL * vec2(1.05, 1.3)) / mix(0.068, 0.012, pow(yBL, 0.85)))
-    * smoothstep(0.0, 0.18, yBL) * smoothstep(1.0, 0.28, yBL);
-
-  float branchShape = max(brRibbon * 0.90, brLick * 0.96);
-
-  // Merge all buoyant combustion shapes
-  float envelope = max(max(mainShape, max(tongueA * 0.98, tongueB * 0.96)), branchShape);
-
-  // Carve sharp, dynamic turbulent edges, jagged upper peaks & swirling cutouts!
-  float carveStrength = mix(0.28, 1.08, pow(hNorm, 0.62));
-  float carved = envelope - (0.56 - flameCurl * 0.72) * carveStrength;
-
-  // CRISP photographic shutter-speed flame edge (sharp transition, ZERO milky fuzz!)
-  float flameDensity = smoothstep(0.04, 0.16, carved);
-
-  // High-contrast thermal core gradient:
-  // Generous vivid tangerine-orange & molten gold outer ribbons + focused incandescent creamy-white heart!
-  float coreHeat = smoothstep(0.10, 0.64, carved) * (0.82 + 0.26 * nBillow);
-  float teepeeCoreBoost = exp(-pow((p.y - 0.38) / 0.21, 2.0)) * exp(-dot(p.xz, p.xz) * 20.0) * 0.42;
-  float temp01 = saturate(coreHeat * 0.84 + teepeeCoreBoost + stoke * 0.11);
-
-  // Subtle translucent smoke wisps drifting lazily above the flame tips
-  float smokeY = saturate((p.y - 0.64) / 0.90);
-  float smokeRad = mix(0.14, 0.36, smokeY);
-  float dSmoke = length(wp.xz - vec2(gust * 0.08 * smokeY, 0.0)) / smokeRad;
-  float smokeMask = saturate(1.0 - dSmoke) * smoothstep(0.0, 0.22, smokeY) * smoothstep(1.0, 0.18, smokeY);
-  float smokeDensity = smoothstep(0.38, 0.78, nBillow) * smokeMask * 0.14;
+  // Very subtle dark/warm smoke wisps strictly above the apex
+  float smokeDensity = simSmoke * zEnv * smoothstep(0.54, 0.80, p.y) * 0.09;
 
   return vec3(temp01, flameDensity, smokeDensity);
 }
@@ -151,8 +107,8 @@ void integrateVolumetricFire(
   vec3 skyAmb,
   inout vec3 accumColor
 ) {
-  vec3 volCenter = vec3(0.06, 0.54, -0.02);
-  float volRadius = 0.98;
+  vec3 volCenter = vec3(0.05, 0.46, -0.01);
+  float volRadius = 0.90;
   vec2 hit = intersectSphere(ro, rd, volCenter, volRadius);
   if (hit.y < 0.0 || hit.x > tMax) return;
 
@@ -178,34 +134,40 @@ void integrateVolumetricFire(
     float smoke = field.z;
 
     if (density > 0.004) {
-      // Rich photographic campfire palette:
-      // Vivid crimson-tangerine curls -> saturated molten amber-gold -> blinding pale yellow-white core
-      vec3 tipOrange = vec3(1.0, 0.14, 0.005);
-      vec3 midGold = vec3(1.0, 0.50, 0.032);
-      vec3 hotCore = vec3(1.0, 0.94, 0.68);
+      // Calibrated DSLR campfire color ramp for AgX:
+      // Outer wisps -> deep fiery vermilion-orange; curling tongues -> vivid molten gold-amber;
+      // innermost protected heart -> blinding cream-white!
+      vec3 crimsonTip = vec3(0.95, 0.09, 0.002);
+      vec3 fieryOrange = vec3(1.0, 0.27, 0.006);
+      vec3 moltenGold = vec3(1.0, 0.65, 0.055);
+      vec3 whiteHot = vec3(1.0, 0.96, 0.78);
 
-      vec3 emitCol = mix(tipOrange, midGold, smoothstep(0.06, 0.58, temp01));
-      emitCol = mix(emitCol, hotCore, smoothstep(0.66, 0.96, temp01));
+      vec3 emitCol = mix(crimsonTip, fieryOrange, smoothstep(0.02, 0.34, temp01));
+      emitCol = mix(emitCol, moltenGold, smoothstep(0.34, 0.70, temp01));
+      emitCol = mix(emitCol, whiteHot, smoothstep(0.72, 0.97, temp01));
 
-      float kelvin = mix(1020.0, 3250.0, pow(temp01, 1.32));
-      emitCol = mix(emitCol, blackbodyColor(kelvin), 0.24);
+      // Physical combustion optics (KEY TO REALISTIC FIRE, ZERO POWDERY ORANGE SMOKE!):
+      // Cool dim orange tips (temp01 < 0.35) are OPTICALLY THIN & LUMINOUS (low absorption so dusk sky
+      // glows delicately through translucent orange tips!), while bright yellow-white inner flames are
+      // dense, blazing, opaque incandescent plasma curtains!
+      float radiance = mix(1.85, 6.2, smoothstep(0.0, 0.58, temp01))
+                     + pow(smoothstep(0.42, 1.0, temp01), 2.05) * 16.5;
+      radiance *= uFireGain * (1.0 + stoke * 0.28);
 
-      // Moderate HDR in orange outer skirts keeps rich fire color through AgX; inner core blazes white-gold!
-      float intensity = mix(1.9, 17.5, pow(temp01, 2.65)) * uFireGain * (1.0 + stoke * 0.34);
-
-      float sigmaT = density * 9.5;
+      float opticalWeight = mix(0.28, 1.0, smoothstep(0.08, 0.52, temp01));
+      float sigmaT = density * 22.0;
       float stepAlpha = 1.0 - exp(-sigmaT * dt);
 
-      fireLight += transmittance * emitCol * intensity * stepAlpha * 0.92;
-      transmittance *= (1.0 - stepAlpha * 0.88);
+      fireLight += transmittance * emitCol * radiance * stepAlpha * (0.55 + 0.45 * opticalWeight);
+      transmittance *= (1.0 - stepAlpha * opticalWeight * 0.92);
     }
 
     if (smoke > 0.002) {
-      float warmUnder = exp(-max(p.y - 0.65, 0.0) * 2.5);
-      vec3 smokeCol = skyAmb * 0.30 + vec3(0.95, 0.36, 0.09) * warmUnder * 0.14;
+      float warmUnder = exp(-max(p.y - 0.62, 0.0) * 2.4);
+      vec3 smokeCol = skyAmb * 0.24 + vec3(0.88, 0.28, 0.06) * warmUnder * 0.12;
       float smokeAlpha = 1.0 - exp(-smoke * 1.9 * dt);
       fireLight += transmittance * smokeCol * smokeAlpha;
-      transmittance *= (1.0 - smokeAlpha * 0.44);
+      transmittance *= (1.0 - smokeAlpha * 0.45);
     }
 
     t += dt;
