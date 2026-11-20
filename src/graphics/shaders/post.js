@@ -206,31 +206,29 @@ void main() {
 
   // Combine linear HDR radiance + multi-scale bloom + warm red-amber film halation
   vec3 hdr = sceneCol + sparksCol;
-  hdr += bloomCol * 0.34;
-  hdr += halationCol * vec3(1.0, 0.42, 0.14) * 0.16;
+  hdr += bloomCol * 0.30;
+  hdr += halationCol * vec3(1.0, 0.36, 0.09) * 0.22;
 
-  // Photographic exposure calibrated for dusk beach + glowing campfire
-  hdr *= 1.05;
+  // Photographic exposure calibrated for rich dusk twilight + blazing HDR campfire
+  hdr *= 1.18;
 
-  // Apply AgX tone mapping
+  // Apply AgX tone mapping (outputs display-referred sRGB-encoded values directly!)
   vec3 col = agxTonemap(hdr);
 
-  // Subtle twilight color harmony (preserving cool indigo shadows & rich golden fire)
-  float shadowMask = smoothstep(0.35, 0.02, dot(col, vec3(0.2126, 0.7152, 0.0722)));
-  col += vec3(-0.004, 0.001, 0.012) * shadowMask;
+  // Preserve deep cool dusk blue-indigo shadows & rich warm orange fire saturation
+  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  float shadowMask = smoothstep(0.42, 0.02, luma);
+  col += vec3(-0.006, 0.000, 0.016) * shadowMask;
 
   // Gentle natural wide-angle lens vignette
-  float vig = 1.0 - smoothstep(0.24, 1.05, r2 * 1.45) * 0.28;
+  float vig = 1.0 - smoothstep(0.22, 1.08, r2 * 1.48) * 0.34;
   col *= vig;
-
-  // Linear -> sRGB gamma encoding
-  col = pow(max(col, vec3(0.0)), vec3(1.0 / 2.2));
 
   // Fine high-ISO photographic sensor grain (prevents smooth dusk sky banding)
   vec2 px = vUv * uResolution;
   float g1 = hashGrain(px + fract(uTime * 17.3) * 100.0);
   float g2 = hashGrain(px * 1.01 + fract(uTime * 29.1) * 100.0);
-  float grain = (g1 + g2 - 1.0) * 0.0135;
+  float grain = (g1 + g2 - 1.0) * 0.014;
   col = clamp(col + grain, 0.0, 1.0);
 
   fragColor = vec4(col, 1.0);
