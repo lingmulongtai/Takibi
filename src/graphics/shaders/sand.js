@@ -11,7 +11,7 @@ const vec2 SAND_MIN = vec2(-5.5, -3.5);
 const vec2 SAND_MAX = vec2(5.5, 7.5);
 const vec2 SAND_INV_SPAN = 1.0 / (SAND_MAX - SAND_MIN);
 
-const float SEA_LEVEL = -0.34;
+const float SEA_LEVEL = -0.21;
 
 // Sample the precomputed RGBA16F sculpted beach footprint terrain + seamless outer continuation
 vec4 sampleSandField(vec2 xz) {
@@ -29,11 +29,11 @@ vec4 sampleSandField(vec2 xz) {
   vec2 grad = mix(tex.gb * reliefBoost, vec2(0.0, -0.028), outFactor);
   float ao = mix(tex.a, 0.75, outFactor);
 
-  // Natural undulating shoreline drop down to sea level
-  float shoreLine = 5.15 + sin(xz.x * 0.34 + 0.6) * 0.32 + (noise2D(xz * 0.45) - 0.5) * 0.38;
-  float shoreDrop = smoothstep(shoreLine - 0.65, shoreLine + 1.05, xz.y);
-  h = mix(h, SEA_LEVEL - 0.06, shoreDrop);
-  grad.y -= shoreDrop * (1.0 - shoreDrop) * 0.22;
+  // Smooth, gradual natural beach slope down into the ocean swash (no steep cliff occluding the shore!)
+  float shoreLine = 5.05 + sin(xz.x * 0.34 + 0.6) * 0.36 + (fbm2D(vec2(xz.x * 0.48, 1.3)) - 0.5) * 0.55;
+  float shoreT = smoothstep(shoreLine - 1.25, shoreLine + 1.15, xz.y);
+  h = mix(h, SEA_LEVEL - 0.025, shoreT);
+  grad = mix(grad, vec2(0.0, -0.042), shoreT * 0.85);
 
   return vec4(h, grad.x, grad.y, ao);
 }
