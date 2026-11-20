@@ -11,7 +11,7 @@ const vec2 SAND_MIN = vec2(-5.5, -3.5);
 const vec2 SAND_MAX = vec2(5.5, 7.5);
 const vec2 SAND_INV_SPAN = 1.0 / (SAND_MAX - SAND_MIN);
 
-const float SEA_LEVEL = -0.21;
+const float SEA_LEVEL = -0.232;
 
 // Sample the precomputed RGBA16F sculpted beach footprint terrain + seamless outer continuation
 vec4 sampleSandField(vec2 xz) {
