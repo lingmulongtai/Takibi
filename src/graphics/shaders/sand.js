@@ -111,26 +111,31 @@ void evaluateSandAlbedo(vec2 xz, float distToCam, float wetness, out vec3 albedo
   float sootMask = exp(-fireDist * fireDist * 4.8);
   drySand = mix(drySand, vec3(0.018, 0.015, 0.016), sootMask * 0.90);
 
-  // Scattered tiny white shell fragments & dark mineral pebbles across foreground sand
-  float microVis = smoothstep(5.8, 0.7, distToCam);
-  vec2 cell = floor(xz * 30.0);
-  vec2 fuv = fract(xz * 30.0);
-  vec2 rnd = hash22(cell);
-  float fleckDist = length(fuv - (0.2 + 0.6 * rnd));
-  float shellDot = smoothstep(0.16, 0.03, fleckDist) * step(0.84, hash12(cell + 17.3));
-  float pebbleDot = smoothstep(0.20, 0.04, fleckDist) * step(0.80, hash12(cell + 91.7));
+  // Tiny natural broken shell fragments & dark mineral grains (fine-scaled, zero polka-dot artifacts!)
+  float microVis = smoothstep(4.2, 0.6, distToCam);
+  vec2 cellA = floor(xz * 74.0);
+  vec2 fuvA = fract(xz * 74.0);
+  vec2 rndA = hash22(cellA);
+  float dShell = length((fuvA - (0.2 + 0.6 * rndA)) * vec2(1.0, 1.45));
+  float shellDot = smoothstep(0.16, 0.03, dShell) * step(0.935, hash12(cellA + 17.3));
 
-  // Dark coastal seaweed/pebble wrack band just above the shoreline (distinct in reference photo!)
-  float shoreWave = sin(xz.x * 0.34 + 0.6) * 0.32;
+  vec2 cellB = floor(xz * 56.0 + vec2(9.2, 4.7));
+  vec2 fuvB = fract(xz * 56.0 + vec2(9.2, 4.7));
+  vec2 rndB = hash22(cellB);
+  float dPebble = length((fuvB - (0.2 + 0.6 * rndB)) * vec2(1.25, 1.0));
+  float pebbleDot = smoothstep(0.18, 0.04, dPebble) * step(0.88, hash12(cellB + 91.7));
+
+  // Dark coastal seaweed/pebble wrack band & damp dark swash edge just above the shoreline
+  float shoreWave = sin(xz.x * 0.36 + 0.6) * 0.30 + (noise2D(vec2(xz.x * 0.55, 1.3)) - 0.5) * 0.34;
   float wrackBand = exp(-pow((xz.y - (3.85 + shoreWave)) / 0.85, 2.0));
-  float wrackNoise = smoothstep(0.45, 0.82, fbm2D(xz * 4.2 + vec2(9.1, 2.4)));
-  drySand = mix(drySand, vec3(0.042, 0.045, 0.056), wrackBand * wrackNoise * 0.72);
+  float wrackNoise = smoothstep(0.42, 0.80, fbm2D(xz * 4.2 + vec2(9.1, 2.4)));
+  drySand = mix(drySand, vec3(0.036, 0.040, 0.054), wrackBand * wrackNoise * 0.78);
 
-  drySand = mix(drySand, vec3(0.62, 0.60, 0.58), shellDot * 0.65 * microVis);
-  drySand = mix(drySand, vec3(0.045, 0.046, 0.054), pebbleDot * 0.55 * microVis);
+  drySand = mix(drySand, vec3(0.56, 0.55, 0.54), shellDot * 0.52 * microVis);
+  drySand = mix(drySand, vec3(0.038, 0.040, 0.048), pebbleDot * 0.48 * microVis);
 
   // Wet sand near shoreline turns dramatically darker & reflective
-  albedo = mix(drySand, drySand * 0.24, wetness);
+  albedo = mix(drySand, drySand * 0.22, wetness);
   specMask = wetness;
 }
 `;
