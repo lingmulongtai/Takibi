@@ -45,9 +45,12 @@ vec3 sampleFireField(vec3 p, float time, float stoke) {
     noise3D(flow2 + vec3(9.2, 1.1, 5.8)) - 0.5
   );
 
-  // Narrow turbulence at core base -> sweeping fluidic flame folds up high
-  float turbAmp = mix(0.055, 0.245, pow(hNorm, 0.72)) * (1.0 + stoke * 0.14);
-  vec3 wp = q + warp1 * turbAmp + warp2 * (turbAmp * 0.34);
+  // Narrow turbulence at core base -> sweeping fluidic curling flame folds & swirling licks up high!
+  float turbAmp = mix(0.075, 0.315, pow(hNorm, 0.68)) * (1.0 + stoke * 0.15);
+  vec3 wp = q + warp1 * turbAmp + warp2 * (turbAmp * 0.42);
+  // Subtle helical swirl folds the straight vertical edges into organic curling fire ribbons!
+  float swirlAng = (warp1.y * 1.85 + sin(time * 2.1 + q.y * 4.5) * 0.35) * hNorm;
+  wp.xz = rot2(swirlAng) * wp.xz;
 
   // Vertically stretched sharp flame-tongue carving field (ridged billows!)
   float nBillow = fbm3DFast(wp * vec3(5.6, 2.5, 5.6) - vec3(0.0, time * (rise * 1.35), 0.0));
@@ -112,10 +115,10 @@ vec3 sampleFireField(vec3 p, float time, float stoke) {
   float flameDensity = smoothstep(0.05, 0.18, carved);
 
   // High-contrast thermal core gradient:
-  // Outer edge -> deep blazing orange-red; middle -> molten bright gold; core -> creamy white-yellow!
-  float coreHeat = smoothstep(0.07, 0.48, carved) * (0.86 + 0.28 * nBillow);
-  float teepeeCoreBoost = exp(-pow((p.y - 0.36) / 0.24, 2.0)) * exp(-dot(p.xz, p.xz) * 16.0) * 0.44;
-  float temp01 = saturate(coreHeat * 0.90 + teepeeCoreBoost + stoke * 0.12);
+  // Generous vivid tangerine-orange & molten gold outer ribbons + focused incandescent creamy-white heart!
+  float coreHeat = smoothstep(0.10, 0.64, carved) * (0.82 + 0.26 * nBillow);
+  float teepeeCoreBoost = exp(-pow((p.y - 0.38) / 0.21, 2.0)) * exp(-dot(p.xz, p.xz) * 20.0) * 0.42;
+  float temp01 = saturate(coreHeat * 0.84 + teepeeCoreBoost + stoke * 0.11);
 
   // Subtle translucent smoke wisps drifting lazily above the flame tips
   float smokeY = saturate((p.y - 0.64) / 0.90);
@@ -175,22 +178,21 @@ void integrateVolumetricFire(
 
     if (density > 0.004) {
       // Rich photographic campfire palette:
-      // Fiery crimson-orange tips -> vivid blazing golden amber -> blinding pale yellow-white core
-      vec3 tipOrange = vec3(1.0, 0.17, 0.008);
-      vec3 midGold = vec3(1.0, 0.56, 0.055);
-      vec3 hotCore = vec3(1.0, 0.95, 0.72);
+      // Vivid crimson-tangerine curls -> saturated molten amber-gold -> blinding pale yellow-white core
+      vec3 tipOrange = vec3(1.0, 0.14, 0.005);
+      vec3 midGold = vec3(1.0, 0.50, 0.032);
+      vec3 hotCore = vec3(1.0, 0.94, 0.68);
 
-      vec3 emitCol = mix(tipOrange, midGold, smoothstep(0.08, 0.54, temp01));
-      emitCol = mix(emitCol, hotCore, smoothstep(0.56, 0.92, temp01));
+      vec3 emitCol = mix(tipOrange, midGold, smoothstep(0.06, 0.58, temp01));
+      emitCol = mix(emitCol, hotCore, smoothstep(0.66, 0.96, temp01));
 
-      float kelvin = mix(1050.0, 3300.0, pow(temp01, 1.18));
-      emitCol = mix(emitCol, blackbodyColor(kelvin), 0.30);
+      float kelvin = mix(1020.0, 3250.0, pow(temp01, 1.32));
+      emitCol = mix(emitCol, blackbodyColor(kelvin), 0.24);
 
-      // Clean HDR intensity so cores hit creamy white while outer curling tongues stay rich vivid orange!
-      float intensity = mix(2.2, 16.5, pow(temp01, 2.2)) * uFireGain * (1.0 + stoke * 0.34);
+      // Moderate HDR in orange outer skirts keeps rich fire color through AgX; inner core blazes white-gold!
+      float intensity = mix(1.9, 17.5, pow(temp01, 2.65)) * uFireGain * (1.0 + stoke * 0.34);
 
-      // Strong self-opacity makes crisp sculpted flame sheets read sharply against the ocean & sky!
-      float sigmaT = density * 9.8;
+      float sigmaT = density * 9.5;
       float stepAlpha = 1.0 - exp(-sigmaT * dt);
 
       fireLight += transmittance * emitCol * intensity * stepAlpha * 0.92;
