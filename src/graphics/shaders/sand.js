@@ -11,7 +11,7 @@ const vec2 SAND_MIN = vec2(-5.5, -3.5);
 const vec2 SAND_MAX = vec2(5.5, 7.5);
 const vec2 SAND_INV_SPAN = 1.0 / (SAND_MAX - SAND_MIN);
 
-const float SEA_LEVEL = -0.232;
+const float SEA_LEVEL = -0.24;
 
 // Sample the precomputed RGBA16F sculpted beach footprint terrain + seamless outer continuation
 vec4 sampleSandField(vec2 xz) {
@@ -22,18 +22,25 @@ vec4 sampleSandField(vec2 xz) {
   vec2 edgeDist = max(vec2(0.0), max(SAND_MIN - xz, xz - SAND_MAX));
   float outFactor = saturate(length(edgeDist) * 0.65);
 
-  float fallbackSlope = -0.028 * max(0.0, xz.y + 1.0) + (noise2D(xz * 0.55) - 0.5) * 0.05;
-  // Slightly amplify sculpted footprint & sand-berm relief for dramatic raking firelight
-  float reliefBoost = 1.42;
-  float h = mix(tex.r * reliefBoost, fallbackSlope, outFactor);
-  vec2 grad = mix(tex.gb * reliefBoost, vec2(0.0, -0.028), outFactor);
-  float ao = mix(tex.a, 0.75, outFactor);
+  float baseSlope = -0.028 * max(0.0, xz.y + 1.0);
+  float fallbackSlope = baseSlope + (noise2D(xz * 0.55) - 0.5) * 0.04;
 
-  // Smooth, gradual natural beach slope down into the ocean swash (no steep cliff occluding the shore!)
-  float shoreLine = 5.05 + sin(xz.x * 0.34 + 0.6) * 0.36 + (fbm2D(vec2(xz.x * 0.48, 1.3)) - 0.5) * 0.55;
-  float shoreT = smoothstep(shoreLine - 1.25, shoreLine + 1.15, xz.y);
-  h = mix(h, SEA_LEVEL - 0.025, shoreT);
-  grad = mix(grad, vec2(0.0, -0.042), shoreT * 0.85);
+  // Taper footprint relief smoothly toward flat wave-washed wet sand near the shoreline (z > 3.7m)
+  // so no stray dry footprints dip below sea level to create unnatural angular puddles!
+  float dryRelief = smoothstep(5.1, 3.6, xz.y);
+  float reliefBoost = 1.44;
+  float hFootprint = mix(baseSlope, tex.r * reliefBoost, dryRelief);
+  vec2 gFootprint = mix(vec2(0.0, -0.028), tex.gb * reliefBoost, dryRelief);
+
+  float h = mix(hFootprint, fallbackSlope, outFactor);
+  vec2 grad = mix(gFootprint, vec2(0.0, -0.028), outFactor);
+  float ao = mix(mix(0.85, tex.a, dryRelief), 0.78, outFactor);
+
+  // Smooth continuous coastal beach slope descending cleanly beneath the 3D raymarched ocean swash
+  float shoreLine = 5.15 + sin(xz.x * 0.30 + 0.5) * 0.34 + (fbm2D(vec2(xz.x * 0.42, 1.3)) - 0.5) * 0.52;
+  float shoreT = smoothstep(shoreLine - 0.95, shoreLine + 1.35, xz.y);
+  h = mix(h, SEA_LEVEL - 0.14, shoreT);
+  grad = mix(grad, vec2(0.0, -0.065), shoreT * 0.90);
 
   return vec4(h, grad.x, grad.y, ao);
 }
@@ -125,17 +132,17 @@ void evaluateSandAlbedo(vec2 xz, float distToCam, float wetness, out vec3 albedo
   float dPebble = length((fuvB - (0.2 + 0.6 * rndB)) * vec2(1.25, 1.0));
   float pebbleDot = smoothstep(0.18, 0.04, dPebble) * step(0.88, hash12(cellB + 91.7));
 
-  // Dark coastal seaweed/pebble wrack band & damp dark swash edge just above the shoreline
-  float shoreWave = sin(xz.x * 0.36 + 0.6) * 0.30 + (noise2D(vec2(xz.x * 0.55, 1.3)) - 0.5) * 0.34;
-  float wrackBand = exp(-pow((xz.y - (3.85 + shoreWave)) / 0.85, 2.0));
-  float wrackNoise = smoothstep(0.42, 0.80, fbm2D(xz * 4.2 + vec2(9.1, 2.4)));
-  drySand = mix(drySand, vec3(0.036, 0.040, 0.054), wrackBand * wrackNoise * 0.78);
+  // Dark coastal damp sand & seaweed/pebble wrack zone framing the frothy shoreline (matching reference photo!)
+  float shoreWave = sin(xz.x * 0.30 + 0.5) * 0.34 + (noise2D(vec2(xz.x * 0.55, 1.3)) - 0.5) * 0.36;
+  float highTideDark = smoothstep(3.15 + shoreWave, 4.95 + shoreWave, xz.y);
+  float wrackNoise = smoothstep(0.30, 0.76, fbm2D(xz * 3.8 + vec2(9.1, 2.4)));
+  drySand = mix(drySand, vec3(0.026, 0.032, 0.048), highTideDark * (0.58 + 0.36 * wrackNoise));
 
   drySand = mix(drySand, vec3(0.56, 0.55, 0.54), shellDot * 0.52 * microVis);
   drySand = mix(drySand, vec3(0.038, 0.040, 0.048), pebbleDot * 0.48 * microVis);
 
-  // Wet sand near shoreline turns dramatically darker & reflective
-  albedo = mix(drySand, drySand * 0.22, wetness);
+  // Wet sand near shoreline turns dramatically darker & specular
+  albedo = mix(drySand, drySand * 0.28, wetness);
   specMask = wetness;
 }
 `;
