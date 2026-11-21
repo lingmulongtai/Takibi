@@ -2,6 +2,7 @@ import {
   createWebGL2Context,
   createProgram,
   createRenderTarget,
+  createMRTRenderTarget,
   createEmptyVAO,
 } from './gl-utils.js';
 import {
@@ -10,7 +11,7 @@ import {
   createBeachTerrainTexture,
 } from './procedural-textures.js';
 import { FULLSCREEN_VERTEX_SHADER } from './shaders/common.js';
-import { SCENE_FRAGMENT_SHADER } from './shaders/scene.js';
+import { BAKE_STATIC_FRAGMENT_SHADER, SCENE_FRAGMENT_SHADER } from './shaders/scene.js';
 import {
   BRIGHT_PASS_FRAGMENT_SHADER,
   BLOOM_DOWNSAMPLE_FRAGMENT_SHADER,
@@ -56,6 +57,7 @@ export class TakibiPipeline {
 
     // Compile all pipeline shader programs
     this.programs = {
+      bake: createProgram(gl, FULLSCREEN_VERTEX_SHADER, BAKE_STATIC_FRAGMENT_SHADER, 'bake'),
       scene: createProgram(gl, FULLSCREEN_VERTEX_SHADER, SCENE_FRAGMENT_SHADER, 'scene'),
       bright: createProgram(gl, FULLSCREEN_VERTEX_SHADER, BRIGHT_PASS_FRAGMENT_SHADER, 'bright'),
       downsample: createProgram(
@@ -84,15 +86,23 @@ export class TakibiPipeline {
     this.sparks.setActiveLimit(this.quality.sparkCount);
 
     // Real-time GPU Navier-Stokes buoyant fire fluid simulator (pre-warmed to roaring equilibrium!)
-    this.fireSim = new FireFluidSim(gl, 256, 224);
-    this.fireSim.warmUp(130);
+    this.fireSim = new FireFluidSim(gl, this.textures.noise, 192, 168);
+    this.fireSim.warmUp(95);
 
     this.targets = {
+      gBuffer: null,
       scene: null,
       sparks: null,
       bloomDown: [],
       bloomUp: [],
     };
+
+    // Cached G-Buffer tracking (only re-baked on resize, mood change, or camera parallax move!)
+    this.gBufferDirty = true;
+    this.gBufferNeedsRefine = false;
+    this.gBufferStillTime = 0;
+    this.bakedCamX = 1e9;
+    this.bakedCamY = 1e9;
 
     this.renderWidth = 0;
     this.renderHeight = 0;
@@ -110,6 +120,7 @@ export class TakibiPipeline {
 
   setMood(moodPreset) {
     this.mood = moodPreset;
+    this.gBufferDirty = true;
   }
 
   triggerSparkBurst(count = 20, boosted = false) {
@@ -117,14 +128,22 @@ export class TakibiPipeline {
   }
 
   resize(force = false) {
-    const dpr = Math.min(window.devicePixelRatio || 1, this.quality.dprCap);
+    const nativeDpr = Math.min(window.devicePixelRatio || 1, 2.0);
+    const dpr = Math.min(nativeDpr, this.quality.dprCap);
     const cssW = Math.max(1, this.canvas.clientWidth || window.innerWidth);
     const cssH = Math.max(1, this.canvas.clientHeight || window.innerHeight);
 
-    const displayW = Math.max(1, Math.round(cssW * dpr));
-    const displayH = Math.max(1, Math.round(cssH * dpr));
-    const renderW = Math.max(1, Math.round(displayW * this.quality.resolutionScale));
-    const renderH = Math.max(1, Math.round(displayH * this.quality.resolutionScale));
+    // Keep output canvas crisp at native display DPR while capping internal raymarch pixel budget!
+    const displayW = Math.max(1, Math.round(cssW * nativeDpr));
+    const displayH = Math.max(1, Math.round(cssH * nativeDpr));
+    let renderW = Math.max(1, Math.round(cssW * dpr * this.quality.resolutionScale));
+    let renderH = Math.max(1, Math.round(cssH * dpr * this.quality.resolutionScale));
+
+    if (this.quality.maxPixels && renderW * renderH > this.quality.maxPixels) {
+      const scale = Math.sqrt(this.quality.maxPixels / (renderW * renderH));
+      renderW = Math.max(1, Math.round(renderW * scale));
+      renderH = Math.max(1, Math.round(renderH * scale));
+    }
 
     if (
       !force &&
@@ -149,10 +168,12 @@ export class TakibiPipeline {
   }
 
   _destroyRenderTargets() {
+    if (this.targets.gBuffer) this.targets.gBuffer.destroy();
     if (this.targets.scene) this.targets.scene.destroy();
     if (this.targets.sparks) this.targets.sparks.destroy();
     for (const rt of this.targets.bloomDown) rt.destroy();
     for (const rt of this.targets.bloomUp) rt.destroy();
+    this.targets.gBuffer = null;
     this.targets.bloomDown = [];
     this.targets.bloomUp = [];
   }
@@ -162,8 +183,11 @@ export class TakibiPipeline {
     const gl = this.gl;
     const hdr = this.caps.supportsHalfFloatFBO;
 
+    // Static G-Buffer MRT: [0] twilight base + exact depth, [1] unit firelight response + ember/wetness meta
+    this.targets.gBuffer = createMRTRenderTarget(gl, width, height, 2, { hdr, filter: gl.NEAREST });
     this.targets.scene = createRenderTarget(gl, width, height, { hdr });
     this.targets.sparks = createRenderTarget(gl, width, height, { hdr });
+    this.gBufferDirty = true;
 
     const levels = this.quality.bloomPasses;
     let bw = Math.max(2, Math.floor(width / 2));
@@ -182,11 +206,10 @@ export class TakibiPipeline {
     }
   }
 
-  _computeCamera(time, cameraOffset) {
-    const breathe = Math.sin(time * 0.42) * 0.0045;
+  _computeCamera(cameraOffset) {
     const pos = [
       cameraOffset.x * 0.14,
-      0.72 + breathe + cameraOffset.y * 0.055,
+      0.72 + cameraOffset.y * 0.055,
       -2.06,
     ];
     const target = [
@@ -198,6 +221,49 @@ export class TakibiPipeline {
     const right = normalize3(cross3([0, 1, 0], fwd));
     const up = cross3(fwd, right);
     return { pos, right, up, fwd, focal: 1.56 };
+  }
+
+  _bakeStaticGBuffer(cameraOffset, highQuality = true) {
+    const gl = this.gl;
+    const rw = this.renderWidth;
+    const rh = this.renderHeight;
+    const bakeProg = this.programs.bake;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.gBuffer.framebuffer);
+    gl.viewport(0, 0, rw, rh);
+    gl.useProgram(bakeProg.program);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.noise);
+    gl.uniform1i(bakeProg.uniform('uNoiseTex'), 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.blueNoise);
+    gl.uniform1i(bakeProg.uniform('uBlueNoiseTex'), 1);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.textures.sandMap);
+    gl.uniform1i(bakeProg.uniform('uSandMap'), 2);
+
+    gl.uniform2f(bakeProg.uniform('uResolution'), rw, rh);
+    gl.uniform2f(bakeProg.uniform('uCameraOffset'), cameraOffset.x, cameraOffset.y);
+    gl.uniform1f(bakeProg.uniform('uSkyExposure'), this.mood.skyExposure);
+    gl.uniform1f(bakeProg.uniform('uSunsetStrength'), this.mood.sunsetStrength);
+    gl.uniform1f(bakeProg.uniform('uAmbientBoost'), this.mood.ambientBoost);
+    gl.uniform1f(bakeProg.uniform('uFireGain'), this.mood.fireGain);
+    gl.uniform1f(bakeProg.uniform('uStarVisibility'), this.mood.starVisibility);
+
+    // High-accuracy bake when settled (0 ongoing per-frame cost!); lighter interactive steps while moving mouse
+    gl.uniform1i(bakeProg.uniform('uSceneSteps'), highQuality ? 96 : Math.min(56, this.quality.sceneSteps));
+    gl.uniform1i(bakeProg.uniform('uShadowSteps'), highQuality ? 22 : Math.min(12, this.quality.shadowSteps));
+
+    this._drawFullscreen();
+
+    this.bakedCamX = cameraOffset.x;
+    this.bakedCamY = cameraOffset.y;
+    this.gBufferDirty = false;
+    this.gBufferNeedsRefine = !highQuality;
+    this.gBufferStillTime = 0;
   }
 
   _drawFullscreen() {
@@ -212,11 +278,24 @@ export class TakibiPipeline {
     const rw = this.renderWidth;
     const rh = this.renderHeight;
 
+    // Re-bake static beach/wood G-Buffer ONLY when camera moves, mood switches, or resized!
+    const camMoved = Math.hypot(cameraOffset.x - this.bakedCamX, cameraOffset.y - this.bakedCamY) > 0.0008;
+    if (this.gBufferDirty) {
+      this._bakeStaticGBuffer(cameraOffset, true);
+    } else if (camMoved) {
+      this._bakeStaticGBuffer(cameraOffset, false);
+    } else if (this.gBufferNeedsRefine) {
+      this.gBufferStillTime += dt;
+      if (this.gBufferStillTime >= 0.14) {
+        this._bakeStaticGBuffer(cameraOffset, true);
+      }
+    }
+
     // Step real-time Navier-Stokes buoyant fire fluid simulation & 3D spark physics
     this.fireSim.step(dt, stoke);
     this.sparks.update(dt, time, stoke);
 
-    // --- PASS 1: Main HDR Raymarched Scene + Volumetric Fire ---
+    // --- PASS 1: Ultra-Fast Live Scene Pass (Cached G-Buffer + Live 3D Ocean + Live Navier-Stokes Fire!) ---
     const sceneProg = this.programs.scene;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.targets.scene.framebuffer);
     gl.viewport(0, 0, rw, rh);
@@ -231,12 +310,16 @@ export class TakibiPipeline {
     gl.uniform1i(sceneProg.uniform('uBlueNoiseTex'), 1);
 
     gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, this.textures.sandMap);
-    gl.uniform1i(sceneProg.uniform('uSandMap'), 2);
+    gl.bindTexture(gl.TEXTURE_2D, this.targets.gBuffer.textures[0]);
+    gl.uniform1i(sceneProg.uniform('uGBaseTex'), 2);
 
     gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.targets.gBuffer.textures[1]);
+    gl.uniform1i(sceneProg.uniform('uGFireTex'), 3);
+
+    gl.activeTexture(gl.TEXTURE4);
     gl.bindTexture(gl.TEXTURE_2D, this.fireSim.texture);
-    gl.uniform1i(sceneProg.uniform('uFireSimTex'), 3);
+    gl.uniform1i(sceneProg.uniform('uFireSimTex'), 4);
 
     gl.uniform2f(sceneProg.uniform('uResolution'), rw, rh);
     gl.uniform1f(sceneProg.uniform('uTime'), time);
@@ -249,9 +332,7 @@ export class TakibiPipeline {
     gl.uniform1f(sceneProg.uniform('uAmbientBoost'), this.mood.ambientBoost);
     gl.uniform1f(sceneProg.uniform('uFireGain'), this.mood.fireGain);
     gl.uniform1f(sceneProg.uniform('uStarVisibility'), this.mood.starVisibility);
-    gl.uniform1i(sceneProg.uniform('uSceneSteps'), this.quality.sceneSteps);
     gl.uniform1i(sceneProg.uniform('uFireSteps'), this.quality.fireSteps);
-    gl.uniform1i(sceneProg.uniform('uShadowSteps'), this.quality.shadowSteps);
 
     this._drawFullscreen();
 
@@ -260,7 +341,7 @@ export class TakibiPipeline {
     gl.viewport(0, 0, rw, rh);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const cam = this._computeCamera(time, cameraOffset);
+    const cam = this._computeCamera(cameraOffset);
     this.sparks.render(cam, this.targets.scene.texture, rw, rh, this.mood.fireGain);
 
     // --- PASS 3: Soft-Knee HDR Bright Pass (into bloomDown[0]) ---
@@ -354,6 +435,9 @@ export class TakibiPipeline {
     gl.uniform1i(compProg.uniform('uHalationTex'), 3);
 
     gl.uniform2f(compProg.uniform('uResolution'), this.displayWidth, this.displayHeight);
+    gl.uniform2f(compProg.uniform('uSceneTexel'), 1 / rw, 1 / rh);
+    const isUpscaling = rw < this.displayWidth * 0.96;
+    gl.uniform1f(compProg.uniform('uSharpen'), isUpscaling ? (this.quality.sharpen ?? 0.45) : 0.0);
     gl.uniform1f(compProg.uniform('uTime'), time);
 
     this._drawFullscreen();
