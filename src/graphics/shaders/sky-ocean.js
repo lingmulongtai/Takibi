@@ -116,10 +116,10 @@ float oceanHeight3D(vec2 p, float time, float detailWeight, out float outBreak) 
   float w2 = noise2D(vec2(p.x * 0.23 + 5.7, p.y * 0.18 - time * 0.05)) - 0.5;
   vec2 wp = p + vec2(w1 * 2.6 + w2 * 0.9, w2 * 1.4);
 
-  // Shoaling envelope: swells build taller & steeper in the surf zone (z ~ 6..24m), calmer far out
-  float surfShoal = smoothstep(55.0, 10.0, p.y) * smoothstep(5.0, 6.8, p.y);
-  // Keep bold choppy water right down to the shoreline surf line (z = 5.45m)!
-  float shoreAtten = smoothstep(5.05, 5.85, p.y);
+  // Shoaling envelope: swells build taller & steeper in the surf zone (z ~ 6.5..24m), calmer far out
+  float surfShoal = smoothstep(55.0, 10.5, p.y) * smoothstep(5.6, 7.6, p.y);
+  // Smoothly taper 3D wave displacement to 0 at z <= 5.45m so the ocean meets the beach slope seamlessly (ZERO cut wall!)
+  float shoreAtten = smoothstep(5.45, 6.55, p.y);
 
   float h = 0.0;
   float breakVal = 0.0;
@@ -139,23 +139,28 @@ float oceanHeight3D(vec2 p, float time, float detailWeight, out float outBreak) 
   h += wave2 * (0.095 + 0.085 * surfShoal) * setMod2;
   breakVal += smoothstep(0.46, 0.68, wave2) * setMod2 * surfShoal * 0.65;
 
-  // --- Wave Train 3: Dramatic plunging surf rollers on left & right midground (matching photo!) ---
-  // Left dark broad breaker roller (z ~ 12..15m, x < 0.5)
-  float leftRollerZ = 13.4 + sin(p.x * 0.20 + 0.8) * 1.3 + w1 * 1.5;
-  float leftRollerEnv = exp(-pow((p.y - leftRollerZ) / 1.75, 2.0)) * smoothstep(1.0, -2.2, p.x);
-  float leftCurl = trochoidWave((p.y - leftRollerZ) * 1.38 + time * 0.92, 3.4);
+  // --- Wave Train 3: Dramatic plunging surf rollers (strictly spatially gated — zero wasted work!) ---
+  if (p.x < 1.2 && abs(p.y - 13.4) < 6.0) {
+    float leftRollerZ = 13.4 + sin(p.x * 0.20 + 0.8) * 1.3 + w1 * 1.5;
+    float leftRollerEnv = exp(-pow((p.y - leftRollerZ) / 1.75, 2.0)) * smoothstep(1.0, -2.2, p.x);
+    if (leftRollerEnv > 0.005) {
+      float leftCurl = trochoidWave((p.y - leftRollerZ) * 1.38 + time * 0.92, 3.4);
+      h += leftCurl * 0.20 * leftRollerEnv;
+      breakVal += smoothstep(0.32, 0.62, leftCurl) * leftRollerEnv * 0.95;
+    }
+  }
 
-  // Right prominent curling white-capped wave wall (z ~ 9..11.5m, x > 1.2)
-  float rightRollerZ = 9.7 + cos(p.x * 0.22 - 0.5) * 1.1 + w2 * 1.3;
-  float rightRollerEnv = exp(-pow((p.y - rightRollerZ) / 1.55, 2.0)) * smoothstep(1.2, 4.0, p.x);
-  float rightCurl = trochoidWave((p.y - rightRollerZ) * 1.50 + time * 0.98, 3.5);
+  if (p.x > 1.0 && abs(p.y - 9.7) < 5.2) {
+    float rightRollerZ = 9.7 + cos(p.x * 0.22 - 0.5) * 1.1 + w2 * 1.3;
+    float rightRollerEnv = exp(-pow((p.y - rightRollerZ) / 1.55, 2.0)) * smoothstep(1.2, 4.0, p.x);
+    if (rightRollerEnv > 0.005) {
+      float rightCurl = trochoidWave((p.y - rightRollerZ) * 1.50 + time * 0.98, 3.5);
+      h += rightCurl * 0.25 * rightRollerEnv;
+      breakVal += smoothstep(0.22, 0.54, rightCurl) * rightRollerEnv * 1.35;
+    }
+  }
 
-  h += leftCurl * 0.20 * leftRollerEnv + rightCurl * 0.25 * rightRollerEnv;
-  // Crisp white foaming lips on breaking crests while keeping dark indigo wave walls exposed!
-  breakVal += smoothstep(0.32, 0.62, leftCurl) * leftRollerEnv * 0.95;
-  breakVal += smoothstep(0.22, 0.54, rightCurl) * rightRollerEnv * 1.35;
-
-  // --- Wave Train 4 & 5: Heavy multi-directional choppy sea facets (keeps near-shore water dark & textured!) ---
+  // --- Wave Train 4 & 5: Heavy multi-directional choppy sea facets ---
   vec2 cUv1 = rot2(0.44) * wp * vec2(0.68, 1.15) + vec2(0.0, time * 0.78);
   vec2 cUv2 = rot2(-0.56) * wp * vec2(1.18, 1.85) + vec2(time * 0.20, time * 1.12);
   float chopA = (noise2D(cUv1) - 0.5) * 0.145;
@@ -170,13 +175,15 @@ float oceanHeight3D(vec2 p, float time, float detailWeight, out float outBreak) 
     h += (r1 + r2 + r3) * detailWeight * (0.35 + 0.65 * shoreAtten);
   }
 
-  // Broken, lacy frothy shoreline surf edge (dark churning water peeks cleanly through foam webs!)
-  float swashCycle = sin(time * 0.78 + sin(p.x * 0.26) * 1.3);
-  float shoreZ = 5.65 + sin(p.x * 0.30 + 0.5) * 0.34 + w1 * 0.48 + swashCycle * 0.22;
-  float swashBreakup = 0.42 + 0.78 * fbm2D(vec2(p.x * 0.85, p.y * 1.1 + time * 0.22));
-  float swashRim = exp(-pow((p.y - (shoreZ + 0.25)) / 0.52, 2.0)) * swashBreakup;
-  h += swashRim * 0.044;
-  breakVal += swashRim * 0.84;
+  // Broken, lacy frothy shoreline surf edge — strictly gated to near-shore z < 8.4m!
+  if (p.y < 8.4) {
+    float swashCycle = sin(time * 0.78 + sin(p.x * 0.26) * 1.3);
+    float shoreZ = 5.85 + sin(p.x * 0.30 + 0.5) * 0.30 + w1 * 0.42 + swashCycle * 0.22;
+    float swashBreakup = 0.42 + 0.78 * fbm2D(vec2(p.x * 0.85, p.y * 1.1 + time * 0.22));
+    float swashRim = exp(-pow((p.y - (shoreZ + 0.20)) / 0.58, 2.0)) * swashBreakup;
+    h += swashRim * 0.032;
+    breakVal += swashRim * 0.90;
+  }
 
   outBreak = saturate(breakVal);
   return h * shoreAtten;
@@ -213,10 +220,10 @@ bool marchOcean3D(vec3 ro, vec3 rd, float zShoreMin, float tMaxSearch, float tim
     return true;
   }
 
-  const int STEPS = 48;
+  const int STEPS = 28;
   for (int i = 1; i <= STEPS; i++) {
     float frac = float(i) / float(STEPS);
-    float t = mix(tStart, tEnd, pow(frac, 1.52));
+    float t = mix(tStart, tEnd, pow(frac, 1.56));
     vec3 p = ro + rd * t;
     float h = OCEAN_BASE_Y + oceanHeight3D(p.xz, time, 0.0, dummy);
     float diff = p.y - h;
@@ -224,7 +231,7 @@ bool marchOcean3D(vec3 ro, vec3 rd, float zShoreMin, float tMaxSearch, float tim
     if (diff <= 0.0) {
       float lo = prevT;
       float hi = t;
-      for (int b = 0; b < 6; b++) {
+      for (int b = 0; b < 4; b++) {
         float mid = 0.5 * (lo + hi);
         vec3 pm = ro + rd * mid;
         float hm = OCEAN_BASE_Y + oceanHeight3D(pm.xz, time, 0.0, dummy);
@@ -316,27 +323,27 @@ vec3 shadeOcean(
   float fireAtten = 1.0 / (1.0 + fireDist * fireDist * 0.085);
   col += fireColor * fireSpec * fireAtten * 0.24;
 
-  // --- REALISTIC BROKEN LACY FOAM & CHURNING WHITEWATER (ZERO FLAT GREY BLANKETS!) ---
-  vec2 foamUv = pos.xz * 1.45 + vec2(0.0, time * 0.25);
-  float web1 = foamWebNoise(foamUv * 2.5);
-  float web2 = foamWebNoise(foamUv * 5.8 + vec2(3.1, 7.4));
-  float fbmBreak = fbm2D(pos.xz * 2.1 + vec2(0.0, time * 0.22));
-  float sprayGrain = noise2D(pos.xz * 12.5 + vec2(time * 0.5, time * 1.2));
+  // --- REALISTIC BROKEN LACY FOAM (gated strictly where waves actually break — skips 18-tap Voronoi on calm sea!) ---
+  if (breakC > 0.08 && dist < 88.0) {
+    vec2 foamUv = pos.xz * 1.45 + vec2(0.0, time * 0.25);
+    float web1 = foamWebNoise(foamUv * 2.5);
+    float web2 = foamWebNoise(foamUv * 5.8 + vec2(3.1, 7.4));
+    float fbmBreak = fbm2D(pos.xz * 2.1 + vec2(0.0, time * 0.22));
+    float sprayGrain = noise2D(pos.xz * 12.5 + vec2(time * 0.5, time * 1.2));
 
-  // Crisp patchy frothy white caps strictly along broken crests + lacy spiderweb foam over dark water!
-  float crestCore = smoothstep(0.54, 0.90, breakC * (0.68 + 0.58 * fbmBreak));
-  float lacyTrail = smoothstep(0.22, 0.66, breakC) * (web1 * 0.58 + web2 * 0.52) * smoothstep(0.38, 0.76, fbmBreak);
-  float foamMask = saturate(crestCore * (0.52 + 0.65 * sprayGrain) + lacyTrail * 0.85);
-  foamMask *= smoothstep(95.0, 9.0, dist);
+    float crestCore = smoothstep(0.54, 0.90, breakC * (0.68 + 0.58 * fbmBreak));
+    float lacyTrail = smoothstep(0.22, 0.66, breakC) * (web1 * 0.58 + web2 * 0.52) * smoothstep(0.38, 0.76, fbmBreak);
+    float foamMask = saturate(crestCore * (0.52 + 0.65 * sprayGrain) + lacyTrail * 0.85);
+    foamMask *= smoothstep(88.0, 9.0, dist);
 
-  // Shaded twilight sea foam: crisp blue-white crest highlights with deep slate-indigo foam shadows
-  float foamShade = saturate(0.42 + 0.58 * n.y - 0.28 * facingCam);
-  vec3 foamLit = mix(vec3(0.28, 0.40, 0.60), vec3(0.72, 0.78, 0.88), rightTint * 0.62 + 0.38) * uSkyExposure;
-  vec3 foamShadow = vec3(0.05, 0.10, 0.22) * uSkyExposure;
-  vec3 foamCol = mix(foamShadow, foamLit, foamShade);
-  foamCol += fireColor * fireAtten * 0.04;
+    float foamShade = saturate(0.42 + 0.58 * n.y - 0.28 * facingCam);
+    vec3 foamLit = mix(vec3(0.28, 0.40, 0.60), vec3(0.72, 0.78, 0.88), rightTint * 0.62 + 0.38) * uSkyExposure;
+    vec3 foamShadow = vec3(0.05, 0.10, 0.22) * uSkyExposure;
+    vec3 foamCol = mix(foamShadow, foamLit, foamShade);
+    foamCol += fireColor * fireAtten * 0.04;
 
-  col = mix(col, foamCol, foamMask * 0.88);
+    col = mix(col, foamCol, foamMask * 0.88);
+  }
 
   // Clean atmospheric horizon mist blending distant swells smoothly into twilight sky
   float fog = 1.0 - exp(-pow(max(dist - 28.0, 0.0) * 0.0075, 1.45));
