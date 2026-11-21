@@ -430,32 +430,46 @@ void main() {
   vec3 woodAmb = albedo * skyAmbAvg * (0.24 + 0.58 * skyFacing);
   woodAmb += albedo * skyAmbAvg * rightSkyCatch * 0.72 * (1.0 - charMask * 0.85);
 
-  // Dynamic fire illumination + ground bounce + edge rim (scales with live flicker every frame!)
-  vec3 woodFireColor = fireMainCol * 0.32;
+  // Dynamic fire illumination + ground bounce + sculpted 3D flame-wrap rim (scales with live flicker!)
+  vec3 woodFireColor = fireMainCol * 0.36;
   vec3 lFire = fireMainPos - p;
   float dFire = length(lFire);
   vec3 lDir = lFire / max(dFire, 0.001);
   float ndl = max(dot(n, lDir), 0.0);
-  float fireAtten = 1.0 / (0.12 + dFire * dFire * 2.1);
-  vec3 woodFire = albedo * woodFireColor * ndl * fireAtten * 3.8;
+  float fireAtten = 1.0 / (0.10 + dFire * dFire * 1.9);
+  vec3 woodFire = albedo * woodFireColor * ndl * fireAtten * 4.4;
+
+  // Inner V-gap plank bevels & throat faces glow warm blazing amber from the recessed 3D heart
+  float innerThroat = smoothstep(0.24, 0.06, length(p.xz)) * smoothstep(0.38, 0.02, p.y) * saturate(facingFire * 1.2 + 0.15);
+  woodFire += mix(driftwoodAlbedo, vec3(0.18, 0.08, 0.03), 0.55) * vec3(1.0, 0.34, 0.04) * innerThroat * (2.6 * uFireGain);
 
   float groundBounce = saturate(-n.y * 0.65 + 0.40) * smoothstep(0.36, -0.03, p.y) * smoothstep(0.68, 0.14, length(p.xz));
-  woodFire += driftwoodAlbedo * vec3(1.0, 0.36, 0.07) * groundBounce * 0.55;
+  woodFire += driftwoodAlbedo * vec3(1.0, 0.36, 0.07) * groundBounce * 0.62;
 
-  float fres = pow(1.0 - max(dot(n, v), 0.0), 3.6);
-  float rimProximity = smoothstep(0.48, 0.12, radialFromCore) * smoothstep(0.10, 0.55, facingFire + upperZone * 0.5);
-  woodFire += woodFireColor * fres * saturate(rimProximity) * 0.52;
+  // Crisp 3D cylindrical molten-gold Fresnel wrap around charred sticks immersed INSIDE the 3D fire!
+  // Tight grazing exponent (4.4) keeps camera-facing bark pitch-black charcoal while lighting ONLY the
+  // razor-sharp flame-kissed silhouette edges — dramatic 3D contrast matching the reference photo!
+  float ndv = max(dot(n, v), 0.0);
+  float fres = pow(1.0 - ndv, 3.8);
+  float tightRim = pow(1.0 - ndv, 4.6);
+  float stickInFire = smoothstep(0.28, 0.44, p.y) * smoothstep(0.80, 0.40, p.y) * smoothstep(0.24, 0.05, length(p.xz));
+  float rimProximity = smoothstep(0.46, 0.12, radialFromCore) * smoothstep(0.12, 0.56, facingFire + upperZone * 0.55);
+  woodFire += vec3(1.0, 0.38, 0.04) * fres * saturate(rimProximity) * (0.92 * uFireGain);
+  woodFire += vec3(1.0, 0.56, 0.09) * tightRim * stickInFire * (2.6 * uFireGain);
+  // Crisp underside fire bounce ONLY on downward-facing edges overhanging the core (keeps fronts dark!)
+  float undersideGlow = pow(saturate(-n.y), 1.7) * smoothstep(0.27, 0.46, p.y) * smoothstep(0.24, 0.05, length(p.xz));
+  woodFire += vec3(1.0, 0.42, 0.05) * undersideGlow * (1.55 * uFireGain);
 
   // Inner charred wood ember cracks (stored in positive alpha for live pulsing!)
   float crackPattern = fbm3DFast(p * 36.0);
-  float fineCrack = smoothstep(0.60, 0.86, crackPattern);
+  float fineCrack = smoothstep(0.58, 0.85, crackPattern);
   float rightBranchT = saturate((p.x - 0.14) / 0.42);
   vec3 rightBranchPt = mix(vec3(0.14, 0.35, -0.06), vec3(0.54, 0.0, -0.13), rightBranchT);
-  float rightBranchBurn = smoothstep(0.068, 0.022, length(p - rightBranchPt)) * smoothstep(0.15, 0.72, n.y);
-  float innerFireExposure = smoothstep(0.45, 0.85, facingFire) * smoothstep(0.28, 0.08, radialFromCore);
-  float upperStickEdge = smoothstep(0.38, 0.56, p.y) * smoothstep(0.32, 0.06, length(p.xz)) * fres * 0.45;
-  float burnHeat = saturate(innerFireExposure + upperStickEdge + rightBranchBurn * 0.62);
-  float woodEmber = fineCrack * pow(burnHeat, 1.55) * 0.72;
+  float rightBranchBurn = smoothstep(0.072, 0.022, length(p - rightBranchPt)) * smoothstep(0.12, 0.70, n.y);
+  float innerFireExposure = smoothstep(0.42, 0.82, facingFire) * smoothstep(0.30, 0.08, radialFromCore);
+  float upperStickEdge = stickInFire * fres * 0.72;
+  float burnHeat = saturate(innerFireExposure + upperStickEdge + rightBranchBurn * 0.68);
+  float woodEmber = fineCrack * pow(burnHeat, 1.45) * 0.82;
 
   outBase = vec4(max(woodAmb, vec3(0.0)), tHit);
   outFire = vec4(max(woodFire, vec3(0.0)), woodEmber);

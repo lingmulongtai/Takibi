@@ -60,7 +60,7 @@ float sdGnarledBranch(vec3 p, vec3 a, vec3 b, float ra, float rb, float crookAmp
   vec3 spine = a + ba * h + bendOffset;
   float r = mix(ra, rb, h);
 
-  float bark = (noise3D(p * 24.0 + vec3(seed * 7.0)) - 0.5) * 0.0065;
+  float bark = (noise3D(p * 22.0 + vec3(seed * 7.0)) - 0.5) * mix(0.0028, 0.0044, smoothstep(0.012, 0.036, r));
   return length(p - spine) - (r + bark);
 }
 
@@ -225,51 +225,54 @@ vec2 mapWood(vec3 p) {
   );
   dWood = min(dWood, dExtRight);
 
-  // --- 3. BOLD DARK CHARRED BRANCHES RISING IN RAZOR-SHARP SILHOUETTE ACROSS THE FLAME! ---
-  // Positioned slightly forward of the main fire curtain (z ~ -0.075..-0.025) so they slice
-  // starkly across the incandescent white-yellow core just like the reference photograph!
+  // --- 3. BOLD DARK CHARRED BRANCHES STAGGERED IN 3D DEPTH THROUGH THE ROARING FLAME! ---
+  // Hero front-left forked stick stands near the front flank of the 3D fire column so its dark silhouette
+  // slices cleanly across the incandescent core while foreground tongues curl around its base & sides.
   float dVertMain = sdGnarledBranch(
     p,
     vec3(-0.105, 0.28, -0.068),
-    vec3(-0.008, 0.795, -0.028),
+    vec3(-0.008, 0.795, -0.024),
     0.026,
     0.011,
     0.036,
     4.1
   );
-  // Secondary vertical right-side charred prong creating the unmistakable forked silhouette
+  // Secondary vertical right-side charred prong nestled deeper INSIDE the 3D fire volume (z ~ -0.015..+0.018)
+  // so lively foreground flame tongues curl in front of its lower shaft while its upper tip breaks free!
   float dVertRight = sdGnarledBranch(
     p,
-    vec3(0.012, 0.31, -0.042),
-    vec3(0.082, 0.725, -0.016),
+    vec3(0.016, 0.30, -0.016),
+    vec3(0.084, 0.735, 0.018),
     0.022,
     0.010,
     0.022,
     5.6
   );
-  // Prominent dark horizontal/diagonal charred cross-sticks slicing across the blazing lower-mid flame
+  // Prominent dark horizontal/diagonal charred cross-stick framing the front throat of the fire
   float dCrossLow = sdGnarledBranch(
     p,
-    vec3(-0.165, 0.345, -0.072),
-    vec3(0.095, 0.420, -0.058),
+    vec3(-0.165, 0.345, -0.078),
+    vec3(0.095, 0.420, -0.062),
     0.025,
     0.022,
     0.014,
     7.3
   );
+  // Angled upper cross-stick plunging diagonally in Z from the front throat back into the 3D flames!
   float dCrossMid = sdGnarledBranch(
     p,
-    vec3(-0.140, 0.475, -0.056),
-    vec3(0.038, 0.375, -0.072),
+    vec3(-0.138, 0.478, -0.016),
+    vec3(0.038, 0.378, -0.068),
     0.019,
     0.023,
     0.016,
     8.9
   );
+  // Rear charred spire sitting behind the fire's center so foreground tongues visibly veil it in 3D depth
   float dBackSpire = sdGnarledBranch(
     p,
-    vec3(-0.045, 0.31, 0.042),
-    vec3(-0.095, 0.640, 0.050),
+    vec3(-0.048, 0.31, 0.058),
+    vec3(-0.098, 0.655, 0.072),
     0.020,
     0.010,
     0.020,
