@@ -431,7 +431,40 @@ export function createBeachTerrainTexture(gl, supportsFloatLinear) {
     }
   }
 
-  // 6. Compute exact world-space gradients (dh/dx, dh/dz) and pack into RGBA32F -> RGBA16F
+  // 6. Bake shoreline slope, relief boost & dry-to-wet smoothing directly into RGBA16F
+  //    so runtime sandHeight() is a SINGLE texture fetch with zero per-step noise math!
+  const SEA_LEVEL = -0.24;
+  const RELIEF_BOOST = 1.44;
+  const finalHeight = new Float32Array(count);
+
+  const smoothstepJS = (e0, e1, x) => {
+    const t = Math.max(0.0, Math.min(1.0, (x - e0) / (e1 - e0)));
+    return t * t * (3.0 - 2.0 * t);
+  };
+
+  for (let iz = 0; iz < size; iz++) {
+    const v = (iz + 0.5) / size;
+    const z = SAND_MAP_BOUNDS.minZ + v * spanZ;
+    const row = iz * size;
+    const baseSlope = -0.028 * Math.max(0.0, z + 1.0);
+    const dryRelief = smoothstepJS(5.1, 3.6, z);
+
+    for (let ix = 0; ix < size; ix++) {
+      const u = (ix + 0.5) / size;
+      const x = SAND_MAP_BOUNDS.minX + u * spanX;
+
+      const hFoot = baseSlope + (smoothed[row + ix] * RELIEF_BOOST - baseSlope) * dryRelief;
+      const shoreNoise =
+        (noise(u, 0.25, 4.0) - 0.5) * 0.36 + (noise(u + 0.37, 0.61, 9.0) - 0.5) * 0.14;
+      const shoreLine = 5.25 + Math.sin(x * 0.3 + 0.5) * 0.30 + shoreNoise;
+      // Gentle natural beach slope crossing SEA_LEVEL (-0.24) right around z = 5.6m (no early cliff drop!)
+      const shoreT = smoothstepJS(shoreLine - 0.85, shoreLine + 1.35, z);
+
+      finalHeight[row + ix] = hFoot + (SEA_LEVEL - 0.12 - hFoot) * shoreT;
+    }
+  }
+
+  // 7. Compute exact world-space gradients (dh/dx, dh/dz) and pack into RGBA32F -> RGBA16F
   const dxWorld = spanX / size;
   const dzWorld = spanZ / size;
   const rgba = new Float32Array(count * 4);
@@ -440,23 +473,30 @@ export function createBeachTerrainTexture(gl, supportsFloatLinear) {
     const zPrev = Math.max(0, iz - 1) * size;
     const zCurr = iz * size;
     const zNext = Math.min(size - 1, iz + 1) * size;
+    const z = SAND_MAP_BOUNDS.minZ + ((iz + 0.5) / size) * spanZ;
+    const dryRelief = smoothstepJS(5.1, 3.6, z);
+
     for (let ix = 0; ix < size; ix++) {
       const xPrev = Math.max(0, ix - 1);
       const xNext = Math.min(size - 1, ix + 1);
 
-      const h = smoothed[zCurr + ix];
-      const dhdx = (smoothed[zCurr + xNext] - smoothed[zCurr + xPrev]) / (2.0 * dxWorld);
-      const dhdz = (smoothed[zNext + ix] - smoothed[zPrev + ix]) / (2.0 * dzWorld);
+      const h = finalHeight[zCurr + ix];
+      const dhdx = (finalHeight[zCurr + xNext] - finalHeight[zCurr + xPrev]) / (2.0 * dxWorld);
+      const dhdz = (finalHeight[zNext + ix] - finalHeight[zPrev + ix]) / (2.0 * dzWorld);
 
       // Compute local curvature / cavity ambient occlusion proxy from Laplacian
       const avgNeighbors =
         0.25 *
-        (smoothed[zCurr + xPrev] +
-          smoothed[zCurr + xNext] +
-          smoothed[zPrev + ix] +
-          smoothed[zNext + ix]);
-      const concavity = Math.max(-1.0, Math.min(1.0, (h - avgNeighbors) * 240.0));
-      const ao = Math.max(0.15, Math.min(1.0, 0.72 + concavity * 0.28 + detail[zCurr + ix] * 0.08));
+        (finalHeight[zCurr + xPrev] +
+          finalHeight[zCurr + xNext] +
+          finalHeight[zPrev + ix] +
+          finalHeight[zNext + ix]);
+      const concavity = Math.max(-1.0, Math.min(1.0, (h - avgNeighbors) * 200.0));
+      const rawAo = Math.max(
+        0.15,
+        Math.min(1.0, 0.72 + concavity * 0.28 + detail[zCurr + ix] * 0.08),
+      );
+      const ao = 0.85 + (rawAo - 0.85) * dryRelief;
 
       const out = (zCurr + ix) * 4;
       rgba[out + 0] = h;
