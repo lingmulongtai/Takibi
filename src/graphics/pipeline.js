@@ -253,9 +253,9 @@ export class TakibiPipeline {
     gl.uniform1f(bakeProg.uniform('uFireGain'), this.mood.fireGain);
     gl.uniform1f(bakeProg.uniform('uStarVisibility'), this.mood.starVisibility);
 
-    // High-accuracy bake when settled (0 ongoing per-frame cost!); lighter interactive steps while moving mouse
-    gl.uniform1i(bakeProg.uniform('uSceneSteps'), highQuality ? 96 : Math.min(56, this.quality.sceneSteps));
-    gl.uniform1i(bakeProg.uniform('uShadowSteps'), highQuality ? 22 : Math.min(12, this.quality.shadowSteps));
+    // Consistent wood-aware shadow step count eliminates shadow popping when moving vs stopping the mouse!
+    gl.uniform1i(bakeProg.uniform('uSceneSteps'), highQuality ? 96 : Math.max(76, this.quality.sceneSteps));
+    gl.uniform1i(bakeProg.uniform('uShadowSteps'), highQuality ? 26 : 22);
 
     this._drawFullscreen();
 

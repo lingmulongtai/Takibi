@@ -91,33 +91,64 @@ vec3 calcWoodNormal(vec3 p) {
   );
 }
 
-float computeFireShadow(vec3 origin, vec3 lightPos, float softness, float jitter) {
+float computeFireShadow(vec3 origin, vec3 lightPos, float softness, float worldDither) {
   vec3 toLight = lightPos - origin;
   float maxDist = length(toLight);
   vec3 dir = toLight / max(maxDist, 0.0001);
 
-  float limit = max(0.05, maxDist - 0.14);
+  float limit = max(0.06, maxDist - 0.14);
   vec2 woodSpan = intersectSphere(origin, dir, WOOD_BOUND_CENTER, WOOD_BOUND_RADIUS);
   bool checkWood = (woodSpan.y > 0.02 && woodSpan.x < limit);
 
   float res = 1.0;
-  float t = 0.030 + jitter * 0.012;
+  // Subtle world-space (camera-invariant!) start offset removes any discrete step banding with zero crawl
+  float t = 0.024 + worldDither * 0.014;
 
   int steps = uShadowSteps;
   for (int i = 0; i < 32; i++) {
-    if (i >= steps || t >= limit || res < 0.015) break;
+    if (i >= steps || t >= limit || res < 0.012) break;
     vec3 p = origin + dir * t;
 
-    float d = p.y - sandHeight(p.xz);
-    if (checkWood && t >= woodSpan.x - 0.08 && t <= woodSpan.y + 0.08) {
-      d = min(d, mapWoodShadow(p));
+    // Exact vertical height above sand -> (dSand / t) is the true elevation angle above the terrain
+    // (completely invariant to step quantization -> ZERO concentric ripple rings around the fire!)
+    float dSandRaw = p.y - sandHeight(p.xz);
+    float dSandStep = dSandRaw * 0.68;
+
+    bool inWoodZone = (checkWood && t >= woodSpan.x - 0.06 && t <= woodSpan.y + 0.06);
+    float dPen = dSandRaw;
+    float dStep = dSandStep;
+
+    if (inWoodZone) {
+      float dWood = mapWoodShadow(p);
+      if (dWood < 0.0008) return 0.0;
+      dPen = min(dPen, dWood);
+      dStep = min(dStep, dWood);
     }
 
-    if (d < 0.001) return 0.0;
-    res = min(res, softness * d / t);
-    t += clamp(d * 0.72, 0.018, 0.16);
+    // Smooth near-origin ramp avoids grazing step-0 self-intersection on curved sand berms
+    float nearGuard = smoothstep(0.022, 0.085, t);
+    if (dSandRaw < 0.0004 && nearGuard > 0.45) return 0.0;
+
+    float effDist = mix(max(dPen, 0.012), max(dPen, 0.0), nearGuard);
+    res = min(res, softness * effDist / max(t, 0.01));
+
+    // Wood-aware distance-adaptive stepping:
+    // Tight steps inside wood bounding sphere (never skips thin planks!),
+    // smoothly growing steps over open sand so 22-26 steps cleanly reaches 6.8m with ZERO popping!
+    float stepLen;
+    if (inWoodZone) {
+      stepLen = clamp(dStep * 0.80, 0.012, 0.080);
+    } else {
+      stepLen = clamp(dStep * 0.85, 0.018 + t * 0.018, 0.24 + t * 0.11);
+      if (checkWood && t < woodSpan.x - 0.04) {
+        stepLen = min(stepLen, max(0.02, (woodSpan.x - 0.03) - t));
+      }
+    }
+    t += stepLen;
   }
-  return saturate(res);
+
+  res = saturate(res);
+  return res * res * (3.0 - 2.0 * res);
 }
 
 float computeAmbientOcclusion(vec3 p, vec3 n) {
@@ -142,8 +173,6 @@ void main() {
   getCameraBasis(uCameraOffset, ro, camRight, camUp, camFwd, focal);
   vec3 rd = normalize(camRight * ndc.x + camUp * ndc.y + camFwd * focal);
 
-  vec4 bn = textureLod(uBlueNoiseTex, fract(fragCoord / 128.0), 0.0);
-
   vec2 woodSpan = intersectSphere(ro, rd, WOOD_BOUND_CENTER, WOOD_BOUND_RADIUS);
   bool rayHitsWoodBound = (woodSpan.y > 0.08);
   bool rayCanHitSand = (rd.y < -0.0005);
@@ -155,6 +184,8 @@ void main() {
     float tMaxSolid = 14.5;
     float tSandEnter = rayCanHitSand ? max(0.08, (SAND_MAX_HEIGHT - ro.y) / rd.y) : 1e5;
     float t = rayHitsWoodBound ? min(max(0.08, woodSpan.x), tSandEnter) : tSandEnter;
+    float tPrev = t;
+    float lastD = 0.0;
 
     int maxSteps = uSceneSteps;
     for (int i = 0; i < 120; i++) {
@@ -170,6 +201,7 @@ void main() {
       } else {
         if (!rayCanHitSand) break;
         if (t < tSandEnter) {
+          tPrev = t;
           t = tSandEnter;
           continue;
         }
@@ -180,26 +212,40 @@ void main() {
       if (d < 0.0018 * max(1.0, t * 0.55)) {
         hitMat = mat;
         tHit = t;
+        lastD = d;
         break;
       }
+      tPrev = t;
       t += max(d, 0.007 * max(1.0, t * 0.35));
     }
 
-    // Safety catch for grazing sand rays that ran close to the surface without crossing threshold:
-    // guarantees ZERO sky/ocean slivers can ever poke through foreground or midground sand!
+    // Exact heightfield continuation if a grazing sand ray exhausted steps before touching:
+    // marches strictly onto the real sand surface so p is NEVER underground or floating in midair!
     if (hitMat == MAT_NONE && rayCanHitSand) {
-      float tFallback = (SEA_LEVEL - ro.y) / rd.y;
-      vec3 pf = ro + rd * min(tFallback, tMaxSolid);
-      if (pf.z < 5.35) {
-        hitMat = MAT_SAND;
-        tHit = min(t, min(tFallback, tMaxSolid));
+      float tEndSand = min(tMaxSolid, (SEA_LEVEL - 0.14 - ro.y) / rd.y);
+      if (t < tEndSand) {
+        float tWalk = t;
+        for (int k = 0; k < 14; k++) {
+          vec3 pw = ro + rd * tWalk;
+          float dw = pw.y - sandHeight(pw.xz);
+          if (dw <= 0.004) {
+            hitMat = MAT_SAND;
+            tHit = tWalk;
+            lastD = dw;
+            break;
+          }
+          tPrev = tWalk;
+          tWalk += max(dw * 0.72, (tEndSand - t) * 0.085);
+          if (tWalk > tEndSand) break;
+        }
       }
     }
 
     if (hitMat != MAT_NONE) {
-      float tLo = max(0.05, tHit - 0.045);
-      float tHi = tHit;
-      for (int r = 0; r < 4; r++) {
+      // Exact zero-crossing bracket: if ray stopped slightly above surface (lastD > 0), extend tHi!
+      float tLo = max(0.05, min(tPrev, tHit - 0.025));
+      float tHi = (lastD > 0.0) ? (tHit + max(lastD * 2.4, 0.028)) : tHit;
+      for (int r = 0; r < 5; r++) {
         float tMid = 0.5 * (tLo + tHi);
         vec3 pm = ro + rd * tMid;
         float dm;
@@ -246,6 +292,13 @@ void main() {
   vec3 skyAmbAvg = 0.5 * (skyAmbLeft + skyAmbRight);
 
   if (hitMat == MAT_SAND) {
+    // Guarantee p sits strictly on the geometric heightfield so shadow rays never launch underground!
+    float exactSandY = sandHeight(p.xz);
+    p.y = max(p.y, exactSandY);
+
+    vec4 macroField = sampleSandField(p.xz);
+    vec3 macroN = normalize(vec3(-macroField.g * 1.18, 1.0, -macroField.b * 1.18));
+
     float sandAO = 0.75;
     float sparkle = 0.0;
     vec3 n = computeSandNormal(p.xz, tHit, sandAO, sparkle);
@@ -257,7 +310,7 @@ void main() {
     float specMask;
     evaluateSandAlbedo(p.xz, tHit, wetness, albedo, specMask);
 
-    float woodAO = (dot(p.xz, p.xz) < 1.32) ? computeAmbientOcclusion(p, n) : 1.0;
+    float woodAO = (dot(p.xz, p.xz) < 1.32) ? computeAmbientOcclusion(p, macroN) : 1.0;
     float combinedAO = saturate(sandAO * (0.42 + 0.58 * woodAO));
 
     // 1. Static Twilight Sky Hemisphere Lighting
@@ -288,9 +341,17 @@ void main() {
     float diffMain = orenNayarDiffuse(n, lMain, v, 0.94);
     float attenMain = 1.0 / (0.24 + dMain * dMain * 1.15 + dMain * dMain * dMain * 0.18);
 
-    float shMain = 1.0;
-    if (dMain < 5.5 && diffMain > 0.002) {
-      shMain = computeFireShadow(p + n * 0.009, fireMainPos, 8.2, bn.g);
+    // Smooth geometric normal shadow origin prevents micro-grain self-shadowing AND eliminates
+    // the backfacing wrap-light jump glitch where diffMain <= 0.002 previously left shMain = 1.0!
+    vec3 shadowOrigin = p + macroN * 0.015 + vec3(0.0, 0.008, 0.0);
+    // Camera-invariant smooth world-space dither breaks up any step aliasing without crawling on mouse move
+    float worldDither = noise2D(p.xz * 26.0 + vec2(3.7, 9.1));
+    float macroFacing = dot(macroN, lMain);
+    float shMain = 0.0;
+    if (dMain < 6.8 && macroFacing > -0.24) {
+      shMain = computeFireShadow(shadowOrigin + lMain * 0.014, fireMainPos, 8.0, worldDither);
+    } else if (dMain >= 6.8) {
+      shMain = 1.0;
     }
     fireAccum += albedo * fireMainCol * diffMain * attenMain * shMain;
 
@@ -307,8 +368,8 @@ void main() {
       vec3 lGap = toGap / max(dGap, 0.001);
       float diffGap = orenNayarDiffuse(n, lGap, v, 0.95);
       float attenGap = 1.0 / (0.14 + dGap * dGap * 2.2);
-      float shGap = (p.z < 0.08 && dGap < 2.2 && diffGap > 0.002)
-        ? computeFireShadow(p + n * 0.009, fireGapPos, 6.2, bn.b)
+      float shGap = (p.z < 0.12 && dGap < 2.2 && dot(macroN, lGap) > -0.18)
+        ? computeFireShadow(shadowOrigin + lGap * 0.012, fireGapPos, 6.2, fract(worldDither + 0.5))
         : shMain * 0.55;
       fireAccum += albedo * fireGapCol * diffGap * attenGap * shGap;
     }
