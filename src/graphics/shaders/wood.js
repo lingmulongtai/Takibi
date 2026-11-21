@@ -64,8 +64,42 @@ float sdGnarledBranch(vec3 p, vec3 a, vec3 b, float ra, float rb, float crookAmp
   return length(p - spine) - (r + bark);
 }
 
+const vec3 WOOD_BOUND_CENTER = vec3(0.0, 0.36, -0.02);
+const float WOOD_BOUND_RADIUS = 1.00;
+
 float woodBoundDist(vec3 p) {
-  return length(p - vec3(0.0, 0.38, -0.02)) - 1.08;
+  return length(p - WOOD_BOUND_CENTER) - WOOD_BOUND_RADIUS;
+}
+
+// Fast analytical plank & branch SDFs (no micro-bark/grain noise) for soft shadow rays (~4x faster!)
+float sdPlankSimple(vec3 p, vec3 base, vec3 tip, vec3 faceHint, vec3 halfExtents) {
+  vec3 up = normalize(tip - base);
+  vec3 right = normalize(cross(faceHint, up));
+  vec3 fwd = cross(up, right);
+  vec3 center = 0.5 * (base + tip);
+  float halfLen = 0.5 * length(tip - base);
+  vec3 q = p - center;
+  vec3 loc = vec3(dot(q, right), dot(q, up), dot(q, fwd));
+  return sdRoundBox(loc, vec3(halfExtents.x, halfLen, halfExtents.z), 0.005);
+}
+
+float sdBranchSimple(vec3 p, vec3 a, vec3 b, float ra, float rb) {
+  vec3 pa = p - a;
+  vec3 ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - mix(ra, rb, h);
+}
+
+// Shadow-casting wood silhouette (front/side/back planks + extending branches — skips thin upper twigs & 3D bark noise)
+float mapWoodShadow(vec3 p) {
+  float d = sdPlankSimple(p, vec3(-0.20, -0.065, -0.225), vec3(-0.095, 0.305, -0.072), vec3(-0.22, 0.08, -0.97), vec3(0.090, 0.195, 0.022));
+  d = min(d, sdPlankSimple(p, vec3(0.15, -0.065, -0.232), vec3(0.042, 0.312, -0.075), vec3(0.30, 0.08, -0.95), vec3(0.092, 0.200, 0.022)));
+  d = min(d, sdPlankSimple(p, vec3(-0.345, -0.06, -0.095), vec3(-0.140, 0.295, -0.015), vec3(-0.78, 0.10, -0.62), vec3(0.074, 0.185, 0.020)));
+  d = min(d, sdPlankSimple(p, vec3(-0.22, -0.06, 0.16), vec3(-0.05, 0.32, 0.04), vec3(-0.52, 0.1, 0.85), vec3(0.078, 0.195, 0.020)));
+  d = min(d, sdPlankSimple(p, vec3(0.25, -0.06, 0.14), vec3(0.08, 0.325, 0.03), vec3(0.56, 0.1, 0.82), vec3(0.078, 0.195, 0.020)));
+  d = min(d, sdBranchSimple(p, vec3(-0.70, -0.024, -0.105), vec3(-0.21, 0.150, -0.068), 0.020, 0.030));
+  d = min(d, sdBranchSimple(p, vec3(0.105, 0.325, -0.055), vec3(0.58, -0.058, -0.145), 0.040, 0.024));
+  return d;
 }
 
 vec2 mapWood(vec3 p) {
