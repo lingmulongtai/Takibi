@@ -145,6 +145,58 @@ export function createRenderTarget(gl, width, height, { hdr = true, filter = gl.
   };
 }
 
+export function createMRTRenderTarget(gl, width, height, count = 2, { hdr = true, filter = gl.NEAREST } = {}) {
+  const w = Math.max(1, Math.floor(width));
+  const h = Math.max(1, Math.floor(height));
+
+  const internalFormat = hdr ? gl.RGBA16F : gl.RGBA8;
+  const type = hdr ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+  const textures = [];
+  const attachments = [];
+
+  for (let i = 0; i < count; i++) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, type, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    const attach = gl.COLOR_ATTACHMENT0 + i;
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, attach, gl.TEXTURE_2D, tex, 0);
+    textures.push(tex);
+    attachments.push(attach);
+  }
+
+  gl.drawBuffers(attachments);
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    gl.deleteFramebuffer(framebuffer);
+    textures.forEach((t) => gl.deleteTexture(t));
+    throw new Error(`Incomplete MRT framebuffer (${w}x${h}, count=${count}, hdr=${hdr}): 0x${status.toString(16)}`);
+  }
+
+  return {
+    width: w,
+    height: h,
+    hdr,
+    textures,
+    framebuffer,
+    destroy() {
+      gl.deleteFramebuffer(framebuffer);
+      textures.forEach((t) => gl.deleteTexture(t));
+    },
+  };
+}
+
 export function createEmptyVAO(gl) {
   const vao = gl.createVertexArray();
   return vao;
