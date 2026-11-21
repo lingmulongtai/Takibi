@@ -137,6 +137,8 @@ uniform sampler2D uSparksTex;
 uniform sampler2D uBloomTex;
 uniform sampler2D uHalationTex;
 uniform vec2 uResolution;
+uniform vec2 uSceneTexel;
+uniform float uSharpen;
 uniform float uTime;
 
 // Troy Sobotka's AgX Tone Mapping (Blender 4.0+ standard) — ideal for high-intensity fire!
@@ -195,10 +197,31 @@ void main() {
 
   // Subtle corner lens dispersion (barely visible, adds DSLR optical authenticity)
   vec2 caOffset = centered * r2 * 0.0042;
+  // Lightweight 5-tap Contrast Adaptive Sharpening (CAS-inspired) recovers Retina crispness when upscaling!
   vec3 sceneCol;
-  sceneCol.r = texture(uSceneTex, vUv + caOffset).r;
-  sceneCol.g = texture(uSceneTex, vUv).g;
-  sceneCol.b = texture(uSceneTex, vUv - caOffset).b;
+  if (uSharpen > 0.001) {
+    vec3 c = texture(uSceneTex, vUv).rgb;
+    vec3 n = texture(uSceneTex, vUv + vec2(0.0, uSceneTexel.y)).rgb;
+    vec3 s = texture(uSceneTex, vUv - vec2(0.0, uSceneTexel.y)).rgb;
+    vec3 e = texture(uSceneTex, vUv + vec2(uSceneTexel.x, 0.0)).rgb;
+    vec3 w = texture(uSceneTex, vUv - vec2(uSceneTexel.x, 0.0)).rgb;
+
+    // Preserve subtle edge chromatic dispersion
+    sceneCol.r = texture(uSceneTex, vUv + caOffset).r;
+    sceneCol.g = c.g;
+    sceneCol.b = texture(uSceneTex, vUv - caOffset).b;
+
+    vec3 mn = min(c, min(min(n, s), min(e, w)));
+    vec3 mx = max(c, max(max(n, s), max(e, w)));
+    vec3 avg = (n + s + e + w) * 0.25;
+    // Clamp sharpening cleanly to local contrast so HDR fire edges never ring!
+    vec3 detail = (c - avg) * uSharpen;
+    sceneCol = clamp(sceneCol + detail, mn * 0.92, mx * 1.08);
+  } else {
+    sceneCol.r = texture(uSceneTex, vUv + caOffset).r;
+    sceneCol.g = texture(uSceneTex, vUv).g;
+    sceneCol.b = texture(uSceneTex, vUv - caOffset).b;
+  }
 
   vec3 sparksCol = texture(uSparksTex, vUv).rgb;
   vec3 bloomCol = texture(uBloomTex, vUv).rgb;
