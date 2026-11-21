@@ -129,9 +129,23 @@ function bootstrap() {
   let startTime = performance.now();
   let lastTime = startTime;
   let audioSyncAcc = 0;
+  let fpsFrameCount = 0;
+  let fpsLastCheck = startTime;
+  let rafId = null;
 
   function frame(now) {
-    const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) * 0.001));
+    rafId = null;
+    if (document.hidden) return;
+
+    // Frame pacing prevents 120Hz+ ProMotion displays from doubling GPU load unnecessarily
+    const minFrameMs = quality.targetFps ? 1000 / quality.targetFps - 1.5 : 0;
+    const rawDeltaMs = now - lastTime;
+    if (fpsFrameCount > 0 && rawDeltaMs < minFrameMs) {
+      rafId = window.requestAnimationFrame(frame);
+      return;
+    }
+
+    const dt = Math.min(0.05, Math.max(0.001, rawDeltaMs * 0.001));
     lastTime = now;
     const elapsed = (now - startTime) * 0.001;
 
@@ -157,10 +171,29 @@ function bootstrap() {
       audioSyncAcc = 0;
     }
 
-    window.requestAnimationFrame(frame);
+    // Update lightweight FPS readout once per second
+    fpsFrameCount++;
+    if (now - fpsLastCheck >= 1000) {
+      const fps = Math.round((fpsFrameCount * 1000) / (now - fpsLastCheck));
+      controls.setResolutionReadout(quality.label, pipeline.renderWidth, pipeline.renderHeight, fps);
+      fpsFrameCount = 0;
+      fpsLastCheck = now;
+    }
+
+    rafId = window.requestAnimationFrame(frame);
   }
 
-  window.requestAnimationFrame(frame);
+  // Pause GPU rendering cleanly while tab is hidden (Web Audio continues smoothly in background!)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && rafId === null) {
+      lastTime = performance.now();
+      fpsLastCheck = lastTime;
+      fpsFrameCount = 0;
+      rafId = window.requestAnimationFrame(frame);
+    }
+  });
+
+  rafId = window.requestAnimationFrame(frame);
 }
 
 if (document.readyState === 'loading') {

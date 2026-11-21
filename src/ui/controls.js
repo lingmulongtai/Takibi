@@ -145,9 +145,10 @@ export class ControlsController {
     }
   }
 
-  setResolutionReadout(label, width, height) {
+  setResolutionReadout(label, width, height, fps = null) {
     if (this.els.resolutionReadout) {
-      this.els.resolutionReadout.textContent = `${label} · ${width}×${height}`;
+      const fpsPart = fps ? ` · ${fps}fps` : '';
+      this.els.resolutionReadout.textContent = `${label} · ${width}×${height}${fpsPart}`;
     }
   }
 
