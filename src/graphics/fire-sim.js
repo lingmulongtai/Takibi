@@ -85,31 +85,33 @@ void main() {
   float n3 = vnoise(w * 28.0 - vec2(uTime * 2.3, uTime * 6.2));
   float pulse = 0.55 + 0.65 * n1 + 0.35 * (n2 - 0.45) + 0.22 * (n3 - 0.5);
 
-  // --- Emitter 1: Full cohesive blazing teepee heart climbing straight through the vertical sticks! ---
-  vec2 coreP = (w - vec2(-0.004, 0.21)) * vec2(1.0 / 0.165, 1.0 / 0.18);
-  float coreMask = exp(-dot(coreP, coreP) * 2.2) * smoothstep(-0.02, 0.05, w.y);
+  // --- Emitter 1: Full cohesive blazing teepee heart starting low inside the center V-gap! ---
+  vec2 coreP = (w - vec2(-0.004, 0.165)) * vec2(1.0 / 0.155, 1.0 / 0.175);
+  float coreMask = exp(-dot(coreP, coreP) * 2.15) * smoothstep(-0.015, 0.035, w.y);
 
-  // Upper-center combustion continuation climbing right behind the vertical forked charred sticks!
-  vec2 midCoreP = (w - vec2(0.002, 0.39)) * vec2(1.0 / 0.115, 1.0 / 0.13);
-  float midCoreMask = exp(-dot(midCoreP, midCoreP) * 2.3) * (0.70 + 0.50 * n1);
+  // Upper-center combustion continuation climbing right behind & between the vertical forked charred sticks!
+  vec2 midCoreP = (w - vec2(0.002, 0.375)) * vec2(1.0 / 0.115, 1.0 / 0.135);
+  float midCoreMask = exp(-dot(midCoreP, midCoreP) * 2.35) * (0.72 + 0.52 * n1);
 
-  // --- Emitter 2: Tighter asymmetric side vents (keeps fire cohesive & tall, never splayed into a wide Y!) ---
-  vec2 leftVent = (w - vec2(-0.092, 0.32)) * vec2(1.0 / 0.070, 1.0 / 0.072);
-  vec2 rightVent = (w - vec2(0.088, 0.33)) * vec2(1.0 / 0.075, 1.0 / 0.075);
-  float ventL = exp(-dot(leftVent, leftVent) * 2.6) * smoothstep(0.30, 0.74, n1);
-  float ventR = exp(-dot(rightVent, rightVent) * 2.5) * smoothstep(0.26, 0.72, n2);
+  // --- Emitter 2: Asymmetric side vents feeding independent 3D foreground/background flame lobes ---
+  vec2 leftVent = (w - vec2(-0.095, 0.305)) * vec2(1.0 / 0.072, 1.0 / 0.075);
+  vec2 rightVent = (w - vec2(0.090, 0.315)) * vec2(1.0 / 0.076, 1.0 / 0.078);
+  float ventL = exp(-dot(leftVent, leftVent) * 2.5) * smoothstep(0.28, 0.72, n1);
+  float ventR = exp(-dot(rightVent, rightVent) * 2.4) * smoothstep(0.24, 0.70, n2);
 
-  // --- Emitter 3: Crisp ragged golden flame licking along upper bark of the right driftwood branch ---
+  // --- Emitter 3: Crisp ragged golden flame licking upward along the curved right driftwood branch ---
   float bt = 0.0;
-  float dBr = segDist2(w, vec2(0.165, 0.270), vec2(0.505, 0.015), bt);
-  float brTap = smoothstep(0.05, 0.22, bt) * smoothstep(0.95, 0.50, bt);
-  float brLine = exp(-pow(dBr / 0.020, 2.0)) * brTap * (0.50 + 0.70 * smoothstep(0.24, 0.76, n2));
-  vec2 brKnotP = (w - vec2(0.365, 0.145)) * vec2(1.0 / 0.045, 1.0 / 0.042);
-  float brKnot = exp(-dot(brKnotP, brKnotP) * 2.2) * (0.70 + 0.60 * smoothstep(0.22, 0.72, n1));
+  float dBr = segDist2(w, vec2(0.155, 0.285), vec2(0.515, 0.008), bt);
+  float brTap = smoothstep(0.04, 0.20, bt) * smoothstep(0.96, 0.48, bt);
+  float brLine = exp(-pow(dBr / 0.022, 2.0)) * brTap * (0.55 + 0.72 * smoothstep(0.22, 0.74, n2));
+  vec2 brKnotP = (w - vec2(0.365, 0.155)) * vec2(1.0 / 0.048, 1.0 / 0.048);
+  float brKnot = exp(-dot(brKnotP, brKnotP) * 2.1) * (0.72 + 0.62 * smoothstep(0.20, 0.72, n1));
+  vec2 brKnot2P = (w - vec2(0.255, 0.235)) * vec2(1.0 / 0.044, 1.0 / 0.046);
+  float brKnot2 = exp(-dot(brKnot2P, brKnot2P) * 2.2) * (0.62 + 0.58 * smoothstep(0.26, 0.74, n3));
 
   float stokeBoost = 1.0 + uStoke * 0.62;
-  float emitFuel = (coreMask * 1.52 + midCoreMask * 1.08 + ventL * 0.72 + ventR * 0.84 + brLine * 0.90 + brKnot * 1.15) * pulse * stokeBoost;
-  float emitTemp = (coreMask * 1.66 + midCoreMask * 1.18 + ventL * 0.80 + ventR * 0.92 + brLine * 1.05 + brKnot * 1.25) * pulse * stokeBoost;
+  float emitFuel = (coreMask * 1.56 + midCoreMask * 1.08 + ventL * 0.76 + ventR * 0.88 + brLine * 0.96 + brKnot * 1.22 + brKnot2 * 0.82) * pulse * stokeBoost;
+  float emitTemp = (coreMask * 1.70 + midCoreMask * 1.18 + ventL * 0.84 + ventR * 0.96 + brLine * 1.12 + brKnot * 1.32 + brKnot2 * 0.90) * pulse * stokeBoost;
 
   fuel = min(1.42, fuel + emitFuel * uDt * 5.6);
   temp = min(1.62, max(temp, emitTemp * 0.94) + emitTemp * uDt * 3.1);
@@ -526,7 +528,7 @@ export class FireFluidSim {
       this._bindTex(2, this.state[0].texture, p, 'uStateTex');
       gl.uniform2f(p.uniform('uTexel'), tx, ty);
       gl.uniform1f(p.uniform('uDt'), stepDt);
-      gl.uniform1f(p.uniform('uVorticity'), 31.0 + stoke * 8.0);
+      gl.uniform1f(p.uniform('uVorticity'), 34.0 + stoke * 9.0);
       this._draw();
       [this.vel[0], this.vel[1]] = [this.vel[1], this.vel[0]];
     }
